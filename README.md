@@ -1,8 +1,8 @@
 # ns3dvrp
 A distance vector routing protocl (DVRP) for ns-3 simulator.
 
-Distance Vector Routing Protocol (DVRP) Integration
---------------------------------------------------
+Distance Vector Routing Protocol (DVRP) Integration for ns3
+-----------------------------------------------------------
 As IPv4 proactive table driven routing protocol, the DVRP is implemented to the ns-3.
 This routing protocol ebables a good platform for testing and experimenting with
 different network typologies.
