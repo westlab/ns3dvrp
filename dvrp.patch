@@ -1,0 +1,4737 @@
+diff -uprN dvrppatch/src/dvrpo/doc/dvrp.rst dvrppatch/src/dvrp/doc/dvrp.rst
+--- dvrppatch/src/dvrpo/doc/dvrp.rst	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/doc/dvrp.rst	2015-05-12 10:44:35.000000000 +0900
+@@ -0,0 +1,321 @@
++
++.. highlight:: cpp
++.. highlight:: bash
++
++Distance Vector Routing Protocol (DVRP) Integration
++---------------------------------------------------
++
++As IPv4 proactive table driven routing protocol, the DVRP is implemented to the ns-3. 
++This routing protocol enables a good platform for testing and experimenting with
++different network typologies with the effect of underneath routing layer. 
++
++Model Description
++*****************
++The source code for the DVRP model is created in the directory ``src/dvrp``.
++The model consist of `.cc` and `.h` files for defining DVRP communication headers.
++In addition, the DVRP module consists of `.cc` and `.h` files which are used 
++for the implementation of the protocol structure. Examples, tests, and helper
++are defined in the relevant folders.
++
++
++Design
++======
++
++The DVRP is a IPv4 unicast only routing protocol, which is developed based on 
++the Bellman-Ford algorithm. In particular, DVRP is developed based on RIPv2 
++(RFCs : rfc: `2453`) and thus, DVRP supports some additional features that 
++are not defined in both RPIv2. Among those additional features, use of sequence 
++numbering for route updates, and maintain a neighbor table for fast reactions for 
++topology changes are major.
++
++The protocol is very simple, and it is normally suitable for flat, medium scale
++network typologies.
++
++
++Header Structure
++################
++
++Though the DVRP is designed and developed based on the RIPv2, header structures 
++are totally different. However, the processes of route update message advertising 
++and processing is more or less similar to the RIPv2.
++
++DVRP uses three headers for its protocol management.
++
++* DVRP Header - The main header that encapsulates all route updates.
++* DVRP Route Update Message (RUM) - the header contains the route record.
++* DVRP Keep Alive Message (KAM) - the header used for neighbor management
++
++The DVRP header basically denotes that the type of update (s) which are 
++encapsulated to the header. In addition, there are unused bits and those 
++will be preserved for future versions of the DVRP.
++
++RUM header carries information about a particulate route.
++Namely RUM contains, Sequence #, Metric, Destination network and its mask.
++At the time the DVRP adds RUMS to the DVRP header, as explained in the 
++rfc: `2453`, maximum number of routes that can be added to the DVRP header 
++is calculated according to the MTU of the link. Users are encouraged to read 
++:rfc:`2543` to fully understand the process.
++
++KAM headers carries the information about the neighbors. Namely, it contains, 
++Neighbor address (i.e., the IP address of the sending interface),
++Network mask (i.e., the Network mask of the sending interface) and 
++command. The 'command' command is implemented by considering on the future 
++version for the DVRP. At the moment, the command is "hello" for all messages.
++
++
++Neighbor Management
++###################
++
++At the time the DVRP initialize, it checks for the interfaces that are up and 
++running. After that, using the link local broadcast addresses, DVRP send KAMs.
++
++When a routes receives a KAM message via an interface that are used in 
++DVRP, (please read read :rfc:`2543` to fully understand the interface exclusions 
++process), the protocol check whether the neighbor address is listed in the neighbor 
++table. If it is not listed, the protocol add the neighbor to the neighbor table and,
++set a timer to expire the neighbor record. Further, router request the full routing
++table of the new neighbor. In case of the neighbor is already listed 
++in the neighbor table, the DVRP protocol update the expiration time of the neighbor.
++
++If a particular neighbor does not send KAM messages for 60s, the protocol considers 
++the neighbor is as unreachable. Therefore, the protocol invalidate the neighbor.
++All invalidated neighbors are removed from the neighbor table after 10s
++of garbage collection time.
++
++Route Management
++################
++
++DVRP uses a Distance-Vector algorithm, and routes are updated according to
++the Bellman-Ford algorithm (sometimes known as Ford-Fulkerson algorithm).
++The algorithm has a convergence time of O(\|V\|*\|E\|) where \|V\| and \|E\| 
++are the number of vertices (routers) and edges (links) respectively.
++It should be stressed that the convergence time is the number of steps in
++the algorithm, and each step is triggered by a message. In general, distance
++vector algorithms are considered as slow convergence. Yet, as Triggered Updates 
++(i.e., when a route is changed) are used in the DVRP, though triggered updates 
++have a 1-5 seconds cool-down time, the topology can be stabilized bit faster 
++than normal.
++
++All the routers which are configured with DVRP use PORT number `272` and `273`
++for its route management. It should be note that, at the moment, DVRP uses
++port number `272` for listing link local broadcast updates. However, as the 
++next implementation of the DVRP uses the multicasting route updates, the 
++port `273` is reserved and even the receiving socket is created in each and 
++every router using the port `273`. Those ports are used in the DVRP based on the 
++unassigned ports by the IANA. Please refer www.iana.org for more information.  
++
++
++Generate Routes and route propagation
++#####################################
++
++The DVRP supports, both route requesting and route responding methods.
++However, in the route requesting method, at the moment a router receives a route
++request message, it responds with its entire table. While creating the respond 
++the DVRP adds all valid routes are listed in the table. This process may bit 
++heavy and, it will be updated in the future versions. In addition, at the moment 
++DVRP accepts only route request from neighbors. Multicasting route requests
++are yet to implement and readers are welcome to implement that.
++
++Updates, namely periodic and triggered updates, are implemented based on the
++rfc:`2543` and readers are welcome to read the RFC in order to understand
++the fully function of the update message generation process. However, 
++instead of multicasting update propagation, DVRP uses link local broadcast
++to send the update messages.
++
++Process Route Updates
++#####################
++
++Updates are also process according to the rfc:`2543`. Readers are welcome 
++to read the RFC in order to understand the update message processing.
++Briefly, DVRP accept routes are from neighbors. Initially routes are validated
++according to the received interface. Note: route validation is yet to implement.
++As DVRP uses link local broadcast for route updates, the routes received from 
++own interface will be ignored first.
++
++DVRP uses Sequence number to validate the route update messages. Based on the 
++sequence number, DVRP determines the valid and invalid routes. *Odd* value 
++of sequence number represents broken routes are *Even* value of sequence number
++represents legitimate routes.
++
++When a route is received at a router, initially router invalidate all *Odd* sequence
++number routes. Then the routes are processes based on the cost (i.e., hop count)
++according to the rfc:`2543`.
++
++In the case a particular route,
++	* does not receiving any updates for 180s or
++	* particular neighbor is marked as invalidated or
++	* an interface / link is broken
++the relevant routes are marked as Invalidate. All invalidate routes are removed 
++from the routing at the garbage collection time (i.e., 10s).
++
++Users should be aware that, during the route table creation, routers might drop 
++the packets. Data packets mush send after given time to build the routing tables. 
++For a medium scale network, 50-60s is enough to have  sub-optimal (thus working)
++routing setup.  This includes the time to propagate the routes to the most distant 
++router (16 hops) with Triggered Updates.
++
++In a case of the topology change (e.g., a link is broken), the recovery time is
++depending on the size of  the topology. As the neighbors are separately manage, 
++the topology changes can be identified quite smoothly. Thanks to triggered updates 
++the broken routes are advertised among the topology based on the size of the 
++topology. Moreover, the recovery phase is affected by the Split Horizoning.
++
++Split Horizon
++#############
++
++The split horizon strategy is used to prevent the route instability.
++Split Horizon is implemented based on the rfc:`2543` and readers are 
++welcome to read the RFC in order to understand split horizon strategy.
++
++Default routes
++##############
++
++DVRP should be installed *only* on routers. As a consequence, nodes will not 
++know what is the default router.
++
++To overcome this limitation, users should either install the default route
++manually (e.g., by resorting to Ipv4StaticRouting). In the example topology,
++as the `Src` and the `Dst` are exclude from the DVRP, neither of those
++nodes receive the route updates. In fact, both those nodes do not posses a 
++forwarding information base. In order to exchange data packets both those nodes 
++are configured with Ipv4StaticRouting. The relevant routes are configured 
++as the default gateway of `Src` and `Dst` 
++
++Protocol parameters and options
++*******************************
++
++The DVRP |ns3| implementation allows to change all the timers associated 
++with both routing and neighbor management.
++
++Moreover, users can specifically configure the interfaces that are excluded 
++from the DVRP. 
++
++The type of Split Horizoning (to avoid routes back-propagation) can be 
++selected on a per-node basis, with the choices being "no split horizon", 
++"split horizon" and "poison reverse". See :rfc:`2543` for further details,
++and :rfc:`1058` for a complete discussion on the split horizoning strategies.
++
++
++USAGE
++*****
++
++Building the DVRP
++=================
++
++Download the DVRP patch file from following link to the ns3 executable directory
++(i.e., /ns-3.21).
++Then patch the ns3 using::
++
++  $ patch -p1 < dvrp.patch
++
++Upon successful patch you can see the 'dvrp' folder is created under:: 
++
++  $ cd src/
++  $ ls
++
++Once the DVRP has been created successfully, change into the ns3 executable directory
++and configure ns3 with DVRP integration support::
++
++  $ cd ..
++  $ ./waf configure --enable-examples --enable-tests
++  $ ./waf build
++ 
++Hint: If the DVRP module is installed and build successfully, you can execute the 
++DVRP example as follow::
++  
++  $ ./waf --run "dvrp-example --MTable"
++
++and you an observe the routing table of the node3.
++
++Helper
++======
++To have a node run DVRP, the easiest way would be to use the DVRPHelper
++class in your simulation script. For instance:
++
++.. sourcecode:: cpp
++
++	DVRPHelper dvrpRouting;
++  Ipv4ListRoutingHelper list;
++  list.Add (dvrpRouting, 0);
++  
++While adding the DVRP to the simulation script, if you wanted to exclude
++some interfaces from the DVRP, you can do it as follow:
++
++.. sourcecode:: cpp
++
++	DVRPHelper dvrpRouting;
++		
++  dvrpRouting.ExcludeInterface (a, 1);
++  dvrpRouting.ExcludeInterface (d, 3);
++  
++  Ipv4ListRoutingHelper list;
++  list.Add (dvrpRouting, 0);
++  
++In addition, while adding the DVRP to the simulation script, if you want
++to print the routing tables (e.g., main or neighbor), you can do it as follow:
++
++.. sourcecode:: cpp
++
++  bool MTable = false; //!< printing the main table
++  bool NTable = false; //!< printing the neighbor table
++
++  CommandLine cmd;
++  cmd.AddValue ("NTable", "Print the Neighbor Table", NTable);
++  cmd.AddValue ("MTable", "Print the Main Routing Table", MTable);
++  
++  cmd.Parse (argc,argv);
++  
++  
++	DVRPHelper dvrpRouting;
++
++  if (MTable)
++    dvrpRouting.Set ("PrintingMethod", EnumValue(MAIN_R_TABLE));
++  else if (NTable) 
++  	dvrpRouting.Set ("PrintingMethod", EnumValue(N_TABLE));
++  
++  Ipv4ListRoutingHelper list;
++  list.Add (dvrpRouting, 0);
++  
++  DVRPHelper routingHelper;
++  Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper> (&std::cout);
++  
++  if (MTable || NTable)
++    routingHelper.PrintRoutingTableEvery (Seconds (30), b, routingStream);
++
++The example script given in the ``src/dvrp/examples`` demonstrates the 
++all aforementioned scenarios.  
++
++EXAMPLE
++=======
++
++The example given in the ``src/dvrp/examples`` shows network setup and
++topology changes. Particularly, uses can check both neighbor and routing tables
++by providing the command line parameters while executing the example,
++i.e., `` ./waf --run "dvrp-example --NTable" ``, to print the neighbor table.
++
++Tests
++=====
++
++Protocol test class is defined under the tests. The test is designed for 
++testing the connectivity using DVRP as the routing protocol. However, at the
++moment, test classes are not defined to test the Split Horizoning. That will be
++updated in near future. 
++
++Limitations
++***********
++
++There is no support for CIDR prefix aggregation. As a result, both routing 
++tables and route advertisements may be larger than necessary. 
++Prefix aggregation may be added in the future.
++
++There is no support to route tags as explained in the RFC. Therefore,
++routers are not able to support protocols other than DVRP. Route tags
++will be added in the future.
++
++Route authentication is not supported by the DVRP. Therefore, every 
++route update come to an particular router is accepted and processed.
++This may open an vulnerability. However, in the current implementations
++as the routes are not advertised by multicasting, thus receives from 
++the neighbors, attacks (i.e., DoS) will not be effectively affected to 
++entire topology. However, route authentication may be implemented in the
++future implementations.   
+diff -uprN dvrppatch/src/dvrpo/examples/dvrp-example.cc dvrppatch/src/dvrp/examples/dvrp-example.cc
+--- dvrppatch/src/dvrpo/examples/dvrp-example.cc	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/examples/dvrp-example.cc	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,263 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++
++// Network topology
++//
++//    SRC <--- (as all packets have to forwards to A, Gateway is set as A)
++//     |<=== source network
++//     A-----B
++//      \   / |
++//       \ /  |
++//        C  /
++//        | /
++//        |/
++//        D
++//        |<=== target network
++//       DST <--- (as all packets have to forwards to D, Gateway is set as D)
++//
++//
++// A, B, C and D are DVRP Enabled routers.
++// A and D are configured with static addresses.
++// All links are connected as P2P links
++// SRC and DST will exchange packets (UDP echo client and server).
++
++#include <fstream>
++
++#include "ns3/core-module.h"
++#include "ns3/dvrp-module.h"
++
++#include "ns3/internet-module.h"
++#include "ns3/network-module.h"
++#include "ns3/point-to-point-module.h"
++#include "ns3/applications-module.h"
++#include "ns3/ipv4-static-routing-helper.h"
++#include "ns3/ipv4-routing-table-entry.h"
++
++using namespace ns3;
++
++NS_LOG_COMPONENT_DEFINE ("DVRPSimpleRouting");
++
++/**
++ * \brief Down a given link
++ * \param NodeA and nodeB Nodes that connected via the link
++ * \param intA and intB interfaces that the link is connected on
++ */
++void MakeLinkDown (Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t intA, uint32_t intB)
++{
++	nodeA->GetObject<Ipv4>()->SetDown (intA);
++	nodeB->GetObject<Ipv4>()->SetDown (intB);
++}
++
++/**
++ * \brief Up a given link
++ * \param NodeA and nodeB Nodes that connected via the link
++ * \param intA and intB interfaces that the link is connected on
++ */
++void MakeLinkUp (Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t intA, uint32_t intB)
++{
++  nodeA->GetObject<Ipv4>()->SetUp (intA);
++  nodeB->GetObject<Ipv4>()->SetUp (intB);
++}
++
++/**
++ * \brief Down a given intarface
++ * \param NodeA node ID
++ * \param intA interface number
++ */
++void MakeInterfaceDown (Ptr<Node> nodeA, uint32_t intA)
++{
++	nodeA->GetObject<Ipv4>()->SetDown (intA);
++}
++
++/**
++ * \brief Up a given intarface
++ * \param NodeA node ID
++ * \param intA interface number
++ */
++void MakeInterfaceUp (Ptr<Node> nodeA, uint32_t intA)
++{
++  nodeA->GetObject<Ipv4>()->SetUp (intA);
++}
++
++
++int 
++main (int argc, char *argv[])
++{
++  bool verbose = true;
++  bool MTable = false; //!< printing the main table
++  bool NTable = false; //!< printing the neighbor table
++
++  CommandLine cmd;
++  cmd.AddValue ("verbose", "Tell application to log if true", verbose);
++  cmd.AddValue ("NTable", "Print the Neighbor Table", NTable);
++  cmd.AddValue ("MTable", "Print the Main Routing Table", MTable);
++
++  cmd.Parse (argc,argv);
++
++ 	NS_LOG_INFO ("Create nodes.");
++  Ptr<Node> src = CreateObject<Node> ();
++  Names::Add ("SrcNode", src);
++  Ptr<Node> dst = CreateObject<Node> ();
++  Names::Add ("DstNode", dst);
++  Ptr<Node> a = CreateObject<Node> ();
++  Names::Add ("RouterA", a);
++  Ptr<Node> b = CreateObject<Node> ();
++  Names::Add ("RouterB", b);
++  Ptr<Node> c = CreateObject<Node> ();
++  Names::Add ("RouterC", c);
++  Ptr<Node> d = CreateObject<Node> ();
++  Names::Add ("RouterD", d);
++  NodeContainer net1 (src, a);
++  NodeContainer net2 (a, b);
++  NodeContainer net3 (a, c);
++  NodeContainer net4 (b, c);
++  NodeContainer net5 (c, d);
++  NodeContainer net6 (b, d);
++  NodeContainer net7 (d, dst);
++  NodeContainer routers (a, b, c, d);
++  NodeContainer nodes (src, dst);
++
++	NS_LOG_INFO ("Create channels.");
++	PointToPointHelper p2p;
++	p2p.SetDeviceAttribute ("DataRate", StringValue ("100Mbps"));
++  p2p.SetChannelAttribute ("Delay", TimeValue (MilliSeconds (2)));
++  NetDeviceContainer ndc1 = p2p.Install (net1);
++  NetDeviceContainer ndc2 = p2p.Install (net2);
++  NetDeviceContainer ndc3 = p2p.Install (net3);
++  NetDeviceContainer ndc4 = p2p.Install (net4);
++  NetDeviceContainer ndc5 = p2p.Install (net5);
++  NetDeviceContainer ndc6 = p2p.Install (net6);
++  NetDeviceContainer ndc7 = p2p.Install (net7);
++
++	NS_LOG_INFO ("Create IPv4 and routing");
++	DVRPHelper dvrpRouting;
++
++  // Rule of thumb:
++  // Interfaces are added sequentially, starting from 0
++  // However, interface 0 is always the loop-back...
++	NS_LOG_INFO ("Excluding the interfaces that are not participating in DVRP routing");
++  dvrpRouting.ExcludeInterface (a, 1);
++  dvrpRouting.ExcludeInterface (d, 3);
++
++	NS_LOG_INFO ("Assign the printing...");  
++  if (MTable)
++    dvrpRouting.Set ("PrintingMethod", EnumValue(MAIN_R_TABLE));
++  else if (NTable) 
++  	dvrpRouting.Set ("PrintingMethod", EnumValue(N_TABLE));
++
++  Ipv4ListRoutingHelper list;
++  list.Add (dvrpRouting, 0);
++
++	InternetStackHelper internet;
++ 	internet.SetRoutingHelper (list);
++	internet.Install (routers);
++
++	InternetStackHelper internetNodes;
++	internetNodes.Install (nodes);
++	
++
++	NS_LOG_INFO ("Assign IPv4 Addresses.");
++	Ipv4AddressHelper ipv4;
++	ipv4.SetBase ("192.168.16.0","255.255.255.252");
++	Ipv4InterfaceContainer iic1 = ipv4.Assign (ndc1);
++
++  ipv4.SetBase ("15.16.16.0","255.255.255.0");
++  Ipv4InterfaceContainer iic2 = ipv4.Assign (ndc2);
++
++  ipv4.SetBase ("203.15.19.0","255.255.255.0");
++  Ipv4InterfaceContainer iic3 = ipv4.Assign (ndc3);
++
++  ipv4.SetBase ("201.13.15.0","255.255.255.0");
++  Ipv4InterfaceContainer iic4 = ipv4.Assign (ndc4);
++
++  ipv4.SetBase ("10.10.10.0","255.255.255.0");
++  Ipv4InterfaceContainer iic5 = ipv4.Assign (ndc5);
++
++  ipv4.SetBase ("11.118.126.0","255.255.255.0");
++  Ipv4InterfaceContainer iic6 = ipv4.Assign (ndc6);
++
++  ipv4.SetBase ("172.16.1.0","255.255.255.252");
++  Ipv4InterfaceContainer iic7 = ipv4.Assign (ndc7);
++
++
++  NS_LOG_INFO ("Setting the default gateways of the Source and Destination.");
++  Ipv4StaticRoutingHelper statRouting;
++  
++	// setting up the 'A' as the default gateway of the 'Src' 
++	Ptr<Ipv4StaticRouting> statSrc = statRouting.GetStaticRouting (src->GetObject<Ipv4> ());
++	statSrc->SetDefaultRoute (a->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal (), 1, 1);
++	
++  // setting up the 'D' as the default gateway of the 'Dst'
++	Ptr<Ipv4StaticRouting> statDst = statRouting.GetStaticRouting (dst->GetObject<Ipv4> ());
++	statDst->SetDefaultRoute (d->GetObject<Ipv4> ()->GetAddress (3, 0).GetLocal (), 1, 1);
++
++
++  // Enable the printing option for the listRouting
++  DVRPHelper routingHelper;
++  Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper> (&std::cout);
++  
++  if (MTable || NTable)
++    routingHelper.PrintRoutingTableEvery (Seconds (30), b, routingStream);
++
++
++
++  NS_LOG_INFO ("Setting up UDP echo server and client.");
++	//create server  	
++	uint16_t port = 9; // well-known echo port number
++	UdpEchoServerHelper server (port);
++	ApplicationContainer apps = server.Install (dst); 
++	
++	apps.Start (Seconds (10.0));
++	apps.Stop (Seconds (400.0));
++	
++	//create client	
++	Ptr<Ipv4> ipv4dst = dst->GetObject<Ipv4> ();
++	
++	UdpEchoClientHelper client (ipv4dst->GetAddress (1, 0).GetLocal (), port); 
++  client.SetAttribute ("MaxPackets", UintegerValue (100));
++  client.SetAttribute ("Interval", TimeValue (Seconds (1.)));
++  client.SetAttribute ("PacketSize", UintegerValue (1024));
++  
++  apps = client.Install (src);
++  
++  apps.Start (Seconds (40.0));
++	apps.Stop (Seconds (400.0));
++
++  // In order to obtain how DVRP reacts when broken links and broken interfaces, 
++  // uncomment the following as prefer.
++  // Further set the time as prefer.
++  
++  // make a link down and up  
++  //Simulator::Schedule (Seconds (40), &MakeLinkDown, b, d, 3, 2); 
++  //Simulator::Schedule (Seconds (185), &MakeLinkUp, b, d, 3, 2); 
++
++  // make a interface down and up
++  //Simulator::Schedule (Seconds (40), &MakeInterfaceDown, d, 2); 
++  //Simulator::Schedule (Seconds (1l85), &MakeInterfaceUp, d, 2); 
++      
++
++	Simulator::Stop (Seconds (450));
++  Simulator::Run ();
++  Simulator::Destroy ();
++
++  return 0;
++}
++
++
+diff -uprN dvrppatch/src/dvrpo/examples/wscript dvrppatch/src/dvrp/examples/wscript
+--- dvrppatch/src/dvrpo/examples/wscript	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/examples/wscript	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,6 @@
++# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
++
++def build(bld):
++    obj = bld.create_ns3_program('dvrp-example', ['dvrp', 'netanim', 'point-to-point', 'internet', 'network', 'applications'])
++    obj.source = 'dvrp-example.cc'
++
+diff -uprN dvrppatch/src/dvrpo/helper/dvrp-helper.cc dvrppatch/src/dvrp/helper/dvrp-helper.cc
+--- dvrppatch/src/dvrpo/helper/dvrp-helper.cc	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/helper/dvrp-helper.cc	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,175 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++* Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 as 
++* published by the Free Software Foundation;
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++* GNU General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License
++* along with this program; if not, write to the Free Software
++* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++*
++* Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++*/
++
++#include "dvrp-helper.h"
++
++#include "ns3/dvrp.h"
++#include "ns3/node.h"
++#include "ns3/node-list.h"
++#include "ns3/names.h"
++#include "ns3/ipv4-list-routing.h"
++
++namespace ns3 {
++
++DVRPHelper::DVRPHelper () : Ipv4RoutingHelper ()
++                            
++{
++  m_factory.SetTypeId ("ns3::DVRPRoutingProtocol");
++}
++
++DVRPHelper::DVRPHelper (const DVRPHelper &o): m_factory (o.m_factory)
++{
++  m_interfaceExclusions = o.m_interfaceExclusions;
++}
++
++DVRPHelper::~DVRPHelper ()
++{
++  m_interfaceExclusions.clear ();
++}
++
++DVRPHelper* 
++DVRPHelper::Copy (void) const
++{
++  return new DVRPHelper (*this);
++}
++
++Ptr<Ipv4RoutingProtocol>
++DVRPHelper::Create (Ptr<Node> node) const
++{
++  Ptr<DVRPRoutingProtocol> DVRPRouteProto = m_factory.Create<DVRPRoutingProtocol> ();
++
++  std::map<Ptr<Node>, std::set<uint32_t> >::const_iterator it = m_interfaceExclusions.find (node);
++
++  if(it != m_interfaceExclusions.end ())
++  {
++    DVRPRouteProto->SetInterfaceExclusions (it->second);
++  }
++
++  node->AggregateObject (DVRPRouteProto);
++  return DVRPRouteProto;
++}
++
++void
++DVRPHelper::Set (std::string name, const AttributeValue &value)
++{
++  m_factory.Set (name, value);
++} 
++
++int64_t
++DVRPHelper::AssignStreams (NodeContainer c, int64_t stream)
++{
++  int64_t currentStream = stream;
++  Ptr<Node> node;
++  for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
++  {
++    node = (*i);
++    Ptr<Ipv4> ipv4 = node->GetObject<Ipv4> ();
++    NS_ASSERT_MSG (ipv4, "Ipv4 not installed on node");
++    
++    Ptr<Ipv4RoutingProtocol> rProto = ipv4->GetRoutingProtocol ();
++    NS_ASSERT_MSG (rProto, "Ipv4 routing not installed on node");
++    
++    Ptr<DVRPRoutingProtocol> DVRP = DynamicCast<DVRPRoutingProtocol> (rProto);
++    if (DVRP)
++    {
++      currentStream += DVRP->AssignStreams (currentStream);
++      continue;
++    }
++    
++    // DVRP may also be in a list
++    Ptr<Ipv4ListRouting> routeList = DynamicCast<Ipv4ListRouting> (rProto);
++    if (routeList)
++    {
++      int16_t priority;
++      Ptr<Ipv4RoutingProtocol> listIpv4Proto;
++      Ptr<DVRPRoutingProtocol> listDVRP;
++      
++      for (uint32_t i = 0; i < routeList->GetNRoutingProtocols (); i++)
++      {
++        listIpv4Proto = routeList->GetRoutingProtocol (i, priority);
++        listDVRP = DynamicCast<DVRPRoutingProtocol> (listIpv4Proto);
++        
++        if (listDVRP)
++        {
++          currentStream += DVRP->AssignStreams (currentStream);
++          break;
++        }
++      }
++    }
++  }
++  return (currentStream - stream);
++}
++
++void DVRPHelper::SetDefRoute (Ptr<Node> node, Ipv4Address nextHop, uint32_t interface)
++{
++  Ptr<Ipv4> ipv4 = node->GetObject<Ipv4> ();
++  NS_ASSERT_MSG (ipv4, "Ipv4 not installed on node");
++  
++  Ptr<Ipv4RoutingProtocol> rProto = ipv4->GetRoutingProtocol ();
++  NS_ASSERT_MSG (rProto, "Ipv4 routing not installed on node");
++  
++  Ptr<DVRPRoutingProtocol> DVRP = DynamicCast<DVRPRoutingProtocol> (rProto);
++  if (DVRP)
++  {
++    DVRP->AddDefaultRouteTo (nextHop, interface);
++  }
++  
++  // DVRP may also be in a list
++  Ptr<Ipv4ListRouting> routeList = DynamicCast<Ipv4ListRouting> (rProto);
++  if (routeList)
++  {
++    int16_t priority;
++    Ptr<Ipv4RoutingProtocol> listIpv4Proto;
++    Ptr<DVRPRoutingProtocol> listDVRP;
++    
++    for (uint32_t i = 0; i < routeList->GetNRoutingProtocols (); i++)
++    {
++      listIpv4Proto = routeList->GetRoutingProtocol (i, priority);
++      listDVRP = DynamicCast<DVRPRoutingProtocol> (listIpv4Proto);
++      
++      if (listDVRP)
++      {
++        DVRP->AddDefaultRouteTo (nextHop, interface);
++        break;
++      }
++    }
++  }
++}
++
++void
++DVRPHelper::ExcludeInterface (Ptr<Node> node, uint32_t interface)
++{
++  std::map< Ptr<Node>, std::set<uint32_t> >::iterator it = m_interfaceExclusions.find (node);
++
++  if (it == m_interfaceExclusions.end ())
++  {
++    std::set<uint32_t> interfaces;
++    interfaces.insert (interface);
++
++    m_interfaceExclusions.insert (std::make_pair (node, interfaces));
++  }
++  else
++  {
++    it->second.insert (interface);
++  }
++}
++
++}
++
+diff -uprN dvrppatch/src/dvrpo/helper/dvrp-helper.h dvrppatch/src/dvrp/helper/dvrp-helper.h
+--- dvrppatch/src/dvrpo/helper/dvrp-helper.h	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/helper/dvrp-helper.h	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,135 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++
++#ifndef DVRP_HELPER_H
++#define DVRP_HELPER_H
++
++#include "ns3/dvrp.h"
++
++#include "ns3/node.h"
++#include "ns3/node-container.h"
++#include "ns3/ipv4-routing-helper.h"
++#include "ns3/object-factory.h"
++
++namespace ns3 {
++
++/**
++ * \brief Helper class that adds DVRP routing to nodes.
++ *
++ * This class is expected to be used in conjunction with
++ * ns3::InternetStackHelper::SetRoutingHelper
++ *
++ */
++
++class DVRPHelper : public Ipv4RoutingHelper
++{
++public:
++  /*
++   * Constructor.
++   */
++  DVRPHelper (); 
++
++  /**
++   * \brief Construct an DVRPHelper from previously
++   * initialized instance (Copy Constructor).
++   */
++  DVRPHelper (const DVRPHelper &);
++
++  /**
++   * Ending the instance by destructing the DVRPHelper
++   */
++  virtual ~DVRPHelper ();
++
++  /**
++   * \brief This method is mainly for internal use by the other helpers;
++   * clients are expected to free the dynamic memory allocated by this method
++   * \returns pointer to clone of this DVRPHelper
++   *
++   */
++  DVRPHelper* Copy (void) const;
++
++  /**
++   * \brief This method will be called by ns3::InternetStackHelper::Install  
++   * \param node the node on which the routing protocol will run
++   * \returns a newly-created routing protocol
++   */
++  virtual Ptr<Ipv4RoutingProtocol> Create (Ptr<Node> node) const;
++
++
++  /**
++   * \brief This method controls the attributes of ns3::DVRP
++   * \param name the name of the attribute to set
++   * \param value the value of the attribute to set.
++   */
++  void Set (std::string name, const AttributeValue &value);
++
++  /**
++   * \brief Assign a fixed random variable stream number for the random variables
++   * used by this model. Return the number of streams (possibly zero) that
++   * have been assigned. The Install() method should have previously been
++   * called by the user.
++   *
++   * \param c NetDeviceContainer of the set of net devices for which the
++   *          SixLowPanNetDevice should be modified to use a fixed stream
++   * \param stream first stream index to use
++   * \return the number of stream indices assigned by this helper
++   */
++  int64_t AssignStreams (NodeContainer c, int64_t stream);
++
++  /**
++   * \brief Install a default route for the node.
++   * The traffic will be forwarded to the nextHop, located on the specified
++   * interface, unless a specific route record is found.
++   *
++   * \param node the node
++   * \param nextHop the next hop
++   * \param interface the network interface
++   */
++  void SetDefRoute (Ptr<Node> node, Ipv4Address nextHop, uint32_t interface);
++
++  /**
++   * \brief Exclude an interface from DVRP protocol.
++   *
++   * You have to call this function BEFORE installing DVRP for the nodes.
++   *
++   * Note: the exclusion means that DVRP route updates will not be propagated on the excluded interface.
++   * The network prefix on that interface will be still considered in DVRP.
++   *
++   * \param node the node
++   * \param interface the network interface to be excluded
++   */
++  void ExcludeInterface (Ptr<Node> node, uint32_t interface);
++
++private:
++  /**
++   * \brief Assignment operator declared private and not implemented to disallow
++   * assignment and prevent the compiler for inserting its own.
++   */
++  DVRPHelper &operator = (const DVRPHelper &o);
++
++  ObjectFactory m_factory; //!< Object Factory
++
++  std::map< Ptr<Node>, std::set<uint32_t> > m_interfaceExclusions; //!< Interface Exclusion set
++
++}; // end of the DVRPHelper class
++
++}
++#endif /* DVRP_HELPER_H */
++
+diff -uprN dvrppatch/src/dvrpo/model/dvrp.cc dvrppatch/src/dvrp/model/dvrp.cc
+--- dvrppatch/src/dvrpo/model/dvrp.cc	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/model/dvrp.cc	2015-05-12 10:16:36.000000000 +0900
+@@ -0,0 +1,1900 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++* Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++*
++* This program is free software; you can redistribute it and/or modify
++* it under the terms of the GNU General Public License version 2 as 
++* published by the Free Software Foundation;
++*
++* This program is distributed in the hope that it will be useful,
++* but WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++* GNU General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License
++* along with this program; if not, write to the Free Software
++* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++*
++* Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++*/
++#include <iomanip>
++
++#include "dvrp.h"
++
++#include "ns3/log.h"
++#include "ns3/abort.h"
++#include "ns3/assert.h"
++#include "ns3/unused.h"
++#include "ns3/random-variable-stream.h"
++#include "ns3/node.h"
++#include "ns3/udp-header.h"
++#include "ns3/enum.h"
++#include "ns3/udp-socket-factory.h"
++#include "ns3/timer.h"
++#include "ns3/ipv4-packet-info-tag.h"
++
++NS_LOG_COMPONENT_DEFINE ("DVRPRoutingProtocol");
++
++namespace ns3 {
++NS_OBJECT_ENSURE_REGISTERED (DVRPRoutingProtocol);
++/* 
++* DVRP Routing Protocol
++*/
++DVRPRoutingProtocol::DVRPRoutingProtocol() :  m_ipv4 (0),
++                                              m_initialized (false)
++{
++  m_rng = CreateObject<UniformRandomVariable> ();
++}
++
++DVRPRoutingProtocol::~DVRPRoutingProtocol () {/*destructor*/}
++
++TypeId DVRPRoutingProtocol::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::DVRPRoutingProtocol")
++    .SetParent<Ipv4RoutingProtocol> ()
++    .AddConstructor<DVRPRoutingProtocol> ()
++    .AddAttribute ( "KeepAliveInterval","The time between two Keep Alive Messages.",
++			              TimeValue (Seconds(30)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_kamTimer),
++			              MakeTimeChecker ())
++    .AddAttribute ( "NeighborTimeoutDelay","The delay to mark a neighbor as unresponsive.",
++			              TimeValue (Seconds(60)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_neighborTimeoutDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "GarbageCollection","The delay to remove unresponsive neighbors from the neighbor table.",
++			              TimeValue (Seconds(10)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_garbageCollectionDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "StartupDelay", "Maximum random delay for protocol startup.",
++                    TimeValue (Seconds(1)),
++                    MakeTimeAccessor (&DVRPRoutingProtocol::m_startupDelay),
++                    MakeTimeChecker ())
++    .AddAttribute ( "SplitHorizon", "Split Horizon strategy.",
++                    EnumValue (SPLIT_HORIZON),
++                    MakeEnumAccessor (&DVRPRoutingProtocol::m_splitHorizonStrategy),
++                    MakeEnumChecker (NO_SPLIT_HORIZON, "NoSplitHorizon",
++                                      SPLIT_HORIZON, "SplitHorizon",
++                                      POISON_REVERSE, "PoisonReverse"))
++    .AddAttribute ( "RouteTimeoutDelay","The delay to mark a route as invalidate.",
++			              TimeValue (Seconds(180)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_routeTimeoutDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "MinTriggeredCooldown","Minimum time gap between two triggered updates.",
++			              TimeValue (Seconds(1)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_minTriggeredCooldownDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "MaxTriggeredCooldown","Maximum time gap between two triggered updates.",
++			              TimeValue (Seconds(5)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_maxTriggeredCooldownDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "PeriodicUpdateInterval","Duration between two periodic updates.",
++			              TimeValue (Seconds(30)), /*This has to be adjust according to the user's requirment*/
++			              MakeTimeAccessor (&DVRPRoutingProtocol::m_periodicUpdateDelay),
++			              MakeTimeChecker ())
++    .AddAttribute ( "PrintingMethod", "Specify which table has to be print.",
++                    EnumValue (DONT_PRINT),
++                    MakeEnumAccessor (&DVRPRoutingProtocol::m_print),
++                    MakeEnumChecker ( MAIN_R_TABLE, "MainRoutingTable",
++                                      N_TABLE, "NeighborTable"))
++  ;
++  return tid;
++}
++
++void 
++DVRPRoutingProtocol::DoInitialize ()
++{
++  NS_LOG_FUNCTION (this);
++
++  bool addedGlobal = false;
++
++  m_initialized = true;
++
++  Time delay = m_periodicUpdateDelay + Seconds (m_rng->GetValue (0, 0.5*m_periodicUpdateDelay.GetSeconds ()));
++  m_nextPeriodicUpdate = Simulator::Schedule (delay, &DVRPRoutingProtocol::SendPeriodicUpdate, this);
++
++  // build the socket interface list
++  // The socket interface list is a reference for the the neighbor management
++  for (uint32_t interfaceId = 1 ; interfaceId < m_ipv4->GetNInterfaces (); interfaceId++)
++  {
++    bool activeInterface = false;
++    if (m_interfaceExclusions.find (interfaceId) == m_interfaceExclusions.end ())
++    {
++      activeInterface = true;
++    } 
++
++    for (uint32_t intAdd = 0; intAdd < m_ipv4->GetNAddresses (interfaceId); intAdd++)
++    {
++      Ipv4InterfaceAddress iface = m_ipv4->GetAddress (interfaceId,intAdd);
++      if (iface.GetScope() == Ipv4InterfaceAddress::GLOBAL && activeInterface == true)
++      {
++        NS_LOG_LOGIC ("DVRP: add a socket to " << iface.GetLocal ());
++    
++        Ptr<Socket> socket = Socket::CreateSocket (GetObject<Node> (),UdpSocketFactory::GetTypeId ());
++        NS_ASSERT (socket != 0);
++
++        socket->Bind (InetSocketAddress(iface.GetLocal (), DVRP_PORT));
++        socket->BindToNetDevice (m_ipv4->GetNetDevice (interfaceId));
++        socket->SetAllowBroadcast (true);
++       
++        //socket->SetIpTtl (1);
++        socket->SetIpRecvTtl (true);
++        socket->SetRecvCallback (MakeCallback (&DVRPRoutingProtocol::Receive,this));
++        socket->SetRecvPktInfo (true);
++
++        NS_LOG_LOGIC ("DVRP: add the socket " << socket << " to the socket list " << iface.GetLocal ());
++        m_sendSocketList[socket] = interfaceId;
++      	addedGlobal = true;
++			}
++    }
++  }
++
++  if (!m_recvSocket)
++  {
++    NS_LOG_LOGIC ("DVRP: add a globally receiving socket");
++      
++    m_recvSocket = Socket::CreateSocket (m_ipv4->GetObject<Node> (), UdpSocketFactory::GetTypeId ());
++    NS_ASSERT (m_recvSocket != 0);
++
++    m_recvSocket->Bind (InetSocketAddress(Ipv4Address::GetAny (), DVRP_LISTEN_PORT));
++    //m_recvSocket->SetIpTtl (1);
++    m_recvSocket->SetRecvCallback (MakeCallback (&DVRPRoutingProtocol::Receive, this));
++    m_recvSocket->SetIpRecvTtl (true);
++    m_recvSocket->SetRecvPktInfo (true);
++  }
++    
++  // Schedule to send the Hello/KAM messages to discover and initiate the neighbor tables
++  Time sendKam = Seconds (m_rng->GetValue (0.1, 0.01*m_kamTimer.GetSeconds ()));
++  m_nextKeepAliveMessage = Simulator::Schedule (sendKam, &DVRPRoutingProtocol::sendKams, this);
++
++  // If there are newly added routes, schedule a triggered update
++  if (addedGlobal)
++  {
++    delay = Seconds (m_rng->GetValue (m_minTriggeredCooldownDelay.GetSeconds (), m_maxTriggeredCooldownDelay.GetSeconds ()));
++    m_nextTriggeredUpdate = Simulator::Schedule (delay, &DVRPRoutingProtocol::DoSendRouteUpdate, this, TRIGGERED);
++  }
++
++  // Otherwise schedule a periodic update
++  delay = m_periodicUpdateDelay + Seconds (m_rng->GetValue (0, 0.5*m_periodicUpdateDelay.GetSeconds ()));
++  m_nextPeriodicUpdate = Simulator::Schedule (delay, &DVRPRoutingProtocol::SendPeriodicUpdate, this);
++
++  Ipv4RoutingProtocol::DoInitialize ();
++}
++
++void 
++DVRPRoutingProtocol::NotifyInterfaceUp (uint32_t interface)
++{
++  NS_LOG_FUNCTION (this << interface);
++  for (uint32_t i = 0; i < m_ipv4->GetNAddresses (interface); i++)
++  {
++    Ipv4InterfaceAddress iface = m_ipv4->GetAddress (interface,i);
++  	Ipv4Mask ifaceNetMask = iface.GetMask();
++    Ipv4Address ifaceNetworkAddress = iface.GetLocal().CombineMask(ifaceNetMask);  
++
++    if (iface.GetLocal() != Ipv4Address () && ifaceNetMask != Ipv4Mask ())
++    {
++      if (iface.GetLocal() == Ipv4Address ("127.0.0.1"))
++      {
++        /* host route for the Interface 0*/
++        NS_LOG_LOGIC ("DVRP: add the local host to the routing table");
++        AddHostRouteTo (iface.GetLocal(), 0, 0, 0, Seconds (0), Seconds (0));
++      }
++      else
++      {
++        // Directly connected networks are never expired unless, unplugged or malfunctioned.
++        // To indicate that the route is about a local interface, all time variables are set as 0.
++        NS_LOG_LOGIC ("DVRP: add the directly connected network to the routing table");        
++        AddNetworkRouteTo (ifaceNetworkAddress, ifaceNetMask, interface, 0, 0, Seconds (0), Seconds (0));
++      }
++    }    
++  }
++
++  if (!m_initialized)
++    return; // if protocol is not started yet, socket list will be created and modified later
++
++  bool foundSendSocket = false;
++  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++  {
++    if (iter->second == interface)
++    {
++      foundSendSocket = true;
++      break;
++    }
++  }
++
++  bool activeInterface = false;
++  if (m_interfaceExclusions.find (interface) == m_interfaceExclusions.end ())
++  {
++    activeInterface = true;
++  }
++  
++  for (uint32_t i = 0; i < m_ipv4->GetNAddresses (interface); i++)
++  {
++    Ipv4InterfaceAddress iface = m_ipv4->GetAddress (interface,i);
++  	Ipv4Mask ifaceNetMask = iface.GetMask();
++    Ipv4Address ifaceNetworkAddress = iface.GetLocal().CombineMask(ifaceNetMask);  
++    
++    if (iface.GetScope() == Ipv4InterfaceAddress::GLOBAL && 
++        foundSendSocket == false && 
++        activeInterface == true)
++    {
++      NS_LOG_LOGIC ("DVRP: add a socket to " << iface.GetLocal ());
++      
++      Ptr<Socket> socket = Socket::CreateSocket (GetObject<Node> (),UdpSocketFactory::GetTypeId ());
++      NS_ASSERT (socket != 0);
++
++      socket->Bind (InetSocketAddress(iface.GetLocal (),DVRP_PORT));
++      socket->BindToNetDevice (m_ipv4->GetNetDevice (interface));
++
++      //socket->SetIpTtl (1);
++      socket->SetIpRecvTtl (true);
++      socket->SetAllowBroadcast (true);
++      socket->SetRecvCallback (MakeCallback (&DVRPRoutingProtocol::Receive,this));
++      socket->SetRecvPktInfo (true);
++
++      NS_LOG_LOGIC ("DVRP: add the socket " << socket << " to the socket list " << iface.GetLocal ());
++      m_sendSocketList[socket] = interface;
++    }
++  }
++
++  if (!m_recvSocket)
++  {
++    NS_LOG_LOGIC ("DVRP: add a globally receiving socket");
++      
++    m_recvSocket = Socket::CreateSocket (m_ipv4->GetObject<Node> (), UdpSocketFactory::GetTypeId ());
++    NS_ASSERT (m_recvSocket != 0);
++
++    m_recvSocket->Bind (InetSocketAddress(Ipv4Address::GetAny (), DVRP_LISTEN_PORT));
++    //m_recvSocket->SetIpTtl (1);
++    m_recvSocket->SetRecvCallback (MakeCallback (&DVRPRoutingProtocol::Receive, this));
++    m_recvSocket->SetIpRecvTtl (true);
++    m_recvSocket->SetRecvPktInfo (true);
++  }
++
++  SendTriggeredRouteUpdate ();
++}
++
++void 
++DVRPRoutingProtocol::NotifyInterfaceDown (uint32_t interface)
++{
++  NS_LOG_FUNCTION (this << interface);
++
++  InvalidateRoutesForInterface (interface);        
++
++  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++  {
++    NS_LOG_INFO ("DVRP: checking socket for interface " << interface);
++    
++    if (iter->second == interface)
++    {
++      NS_LOG_INFO ("DVRP: removed socket for interface " << interface);
++      
++      iter->first->Close ();
++      m_sendSocketList.erase (iter);
++      break;
++    }
++  }
++
++  if (m_interfaceExclusions.find (interface) == m_interfaceExclusions.end ())
++  {
++    SendTriggeredRouteUpdate ();
++  }
++}
++
++void 
++DVRPRoutingProtocol::NotifyAddAddress (uint32_t interface, Ipv4InterfaceAddress address)
++{
++  NS_LOG_FUNCTION (this << " interface " << interface << " address " << address);
++
++  if (!m_ipv4->IsUp (interface))
++  {
++    NS_LOG_DEBUG ("DVRP: the interface is not up " << interface);
++    return;
++  }
++
++  if (m_interfaceExclusions.find (interface) != m_interfaceExclusions.end ())
++  {
++    NS_LOG_DEBUG ("DVRP: the interface is exclude from the DVRP " << interface);
++    return;
++  }
++
++	Ipv4Mask netMask = address.GetMask();
++  Ipv4Address networkAddress = address.GetLocal().CombineMask(netMask);
++
++  if (address.GetLocal() != Ipv4Address () && netMask != Ipv4Mask ())
++  {
++    NS_LOG_LOGIC ("DVRP: add the directly connected network to the routing table");        
++    AddNetworkRouteTo (networkAddress, netMask, interface, 0, 0, Seconds (0), Seconds (0));
++  }
++
++  SendTriggeredRouteUpdate ();
++}
++
++void 
++DVRPRoutingProtocol::NotifyRemoveAddress (uint32_t interface, Ipv4InterfaceAddress address)
++{
++  NS_LOG_FUNCTION (this << " interface " << interface << " address " << address);
++
++  if (!m_ipv4->IsUp (interface))
++  {
++    NS_LOG_DEBUG ("DVRP: the interface is not up " << interface);  
++    return;
++  }
++
++  if (address.GetScope() != Ipv4InterfaceAddress::GLOBAL)
++  {
++    return;
++  }
++
++  InvalidateRoutesForInterface (interface);
++
++  if (m_interfaceExclusions.find (interface) == m_interfaceExclusions.end ())
++  {
++    SendTriggeredRouteUpdate ();
++  }  
++}
++
++void 
++DVRPRoutingProtocol::SetIpv4 (Ptr<Ipv4> ipv4)
++{
++  NS_LOG_FUNCTION (this << ipv4);
++
++  NS_ASSERT (m_ipv4 == 0 && ipv4 != 0);
++  
++  uint32_t i = 0;
++  m_ipv4 = ipv4;
++
++  for (i = 0; i < m_ipv4->GetNInterfaces (); i++)
++  {
++    if (m_ipv4->IsUp (i))
++    {
++      NotifyInterfaceUp (i);
++    }
++    else
++    {
++      NotifyInterfaceDown (i);
++    }
++  }
++}
++
++void 
++DVRPRoutingProtocol::PrintRoutingTable (Ptr<OutputStreamWrapper> stream) const
++{
++  NS_LOG_FUNCTION (this << stream);
++
++  std::ostream* os = stream->GetStream ();
++
++	if (m_print == N_TABLE)
++	{
++    NS_LOG_LOGIC ("DVRP: printing the neighbor table");
++            	
++  	*os << "Node: " << GetObject<Node> ()->GetId ()
++    	  << " Time: " << Simulator::Now ().GetSeconds () << "s "
++     		<< "DVRP Neighbor Table" << '\n';
++  	PrintNeighborTable (stream);
++	}
++	else if (m_print == MAIN_R_TABLE)
++	{
++    NS_LOG_LOGIC ("DVRP: printing the routing table");
++    
++		*os << "Node: " << GetObject<Node> ()->GetId ()
++    	  << " Time: " << Simulator::Now ().GetSeconds () << "s "
++     		<< "DVRP Routing Table" << '\n';
++
++    *os << "Destination         Gateway          If  Seq#    Metric  Validity Changed Expire in (s)" << '\n';
++    *os << "------------------  ---------------  --  ------  ------  -------- ------- -------------" << '\n';
++
++    for (RoutesCI it = m_routing.begin ();  it!= m_routing.end (); it++)
++    {
++      DVRPRoutingEntry *route = it->first;
++      Validity validity = route->GetValidity ();
++
++      if (validity == VALID || validity == LHOST || validity == INVALID)
++      {
++        std::ostringstream dest, gateway, val;
++
++        // Destination Network
++        dest << route->GetDestNetwork () << "/" << int (route->GetDestNetworkMask ().GetPrefixLength ());
++        *os << std::setiosflags (std::ios::left) << std::setw (20) << dest.str ();
++        
++        // Gateway Address        
++        gateway << route->GetGateway ();
++        *os << std::setiosflags (std::ios::left) << std::setw (17) << gateway.str ();
++        
++        // Output interface
++        *os << std::setiosflags (std::ios::left) << std::setw (4) << route->GetInterface ();
++        
++        // Sequence number of the route
++        *os << std::setiosflags (std::ios::left) << std::setw (8) << route->GetSequenceNo ();
++        
++        // Metric of the route
++        *os << std::setiosflags (std::ios::left) << std::setw (8) << route->GetMetric ();
++        
++        //Validity of the route
++        if (route->GetValidity () == VALID)
++          val << "VALID";
++        else if (route->GetValidity () == INVALID)
++          val << "INVALID";
++        else if (route->GetValidity () == LHOST)
++          val << "Loc. Host";
++        *os << std::setiosflags (std::ios::left) << std::setw (10) << val.str ();
++        
++        // Changed flag of the route
++        *os << std::setiosflags (std::ios::left) << std::setw (7) << route->GetRouteChanged ();
++        
++        // printing how many seconds left for next event trigger
++        *os << std::setiosflags (std::ios::left) << std::setw (8) << Simulator::GetDelayLeft (it->second).GetSeconds ();
++       
++        *os << '\n';
++      }        
++    }
++	}    
++}
++
++int64_t 
++DVRPRoutingProtocol::AssignStreams (int64_t stream)
++{
++  NS_LOG_FUNCTION (this << stream);
++
++  m_rng->SetStream (stream);
++
++  return 1;
++}
++
++void 
++DVRPRoutingProtocol::SetInterfaceExclusions (std::set<uint32_t> exceptions)
++{
++  NS_LOG_FUNCTION (this);
++
++  m_interfaceExclusions = exceptions; 
++}
++
++void 
++DVRPRoutingProtocol::SendRouteRequestTo (Ipv4Address toAddress)
++{
++  NS_LOG_FUNCTION (this << toAddress);
++    
++  Ptr<Packet> p = Create<Packet> ();
++  
++  SocketIpTtlTag tag;    
++  tag.SetTtl (1);
++  p->AddPacketTag (tag);
++
++  // Note: Currently, in this implementation, every request is considered as for the entire routing table.
++  // Todo: specify the configuration values to request defined number of routes.
++  
++  DVRPRoutingHeader hdr;
++  hdr.SetCommand (REQUEST);
++  
++  DVRPRum rum;
++
++  // As the protocol is requesting an entire table, some arbitrary values are added to the RUM
++  rum.SetSequenceNo (255);
++  rum.SetMatric (255);
++  rum.SetDestAddress (Ipv4Address ());
++  rum.SetDestMask (Ipv4Mask ());
++  
++  hdr.AddRum (rum);
++  
++  p->AddHeader (hdr);
++  
++  NeighborI foundNeighbor;
++  bool neighborFound = FindValidNeighbor (toAddress, foundNeighbor);
++  
++  if (neighborFound)
++  {
++    NS_LOG_DEBUG ("DVRP: send the route request to : " << toAddress);
++    
++    Ipv4Address broadAddress = toAddress.GetSubnetDirectedBroadcast (foundNeighbor->first->GetNeighborMask ());
++    foundNeighbor->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (broadAddress, DVRP_LISTEN_PORT));
++  }  
++}
++
++void 
++DVRPRoutingProtocol::sendKams ()
++{
++  NS_LOG_FUNCTION (this);
++
++  Ptr<Packet> p = Create<Packet> ();
++  
++  SocketIpTtlTag tag;
++  tag.SetTtl (1);
++  p->AddPacketTag (tag);
++
++  // Note:In this method, we assume that number of interfaces of a router 
++  // are not exceeding Maximum RUMs that a DVRP header supports.
++
++  DVRPRoutingHeader hdr;
++  hdr.SetCommand (KAM);
++
++	for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++	{
++    DVRPKAMHeader kamHdr;
++    uint32_t interface = iter->second;
++  
++    kamHdr.SetCommand (HELLO);
++    
++    // Get the interface attributes
++    Ipv4InterfaceAddress iface = m_ipv4->GetAddress (interface, 0);
++    Ipv4Address interfaceAddress= iface.GetLocal ();
++    Ipv4Mask interfaceNetMask = iface.GetMask ();
++
++    kamHdr.SetGateway (interfaceAddress);
++    kamHdr.SetGatewayMask (interfaceNetMask);
++
++    // Set & send the packet
++    hdr.AddKam (kamHdr);
++    p->AddHeader (hdr);
++    if (m_interfaceExclusions.find (interface) == m_interfaceExclusions.end ())
++    {
++      NS_LOG_DEBUG ("DVRP: send the KAM to : " << iface.GetBroadcast ());
++      
++      // Send KAM updates
++      iter->first->SendTo (p, 0, InetSocketAddress (iface.GetBroadcast (), DVRP_PORT));	
++      
++      p->RemoveHeader (hdr);
++      hdr.ClearKams ();
++    }
++	}	
++
++  // Reschedule next KAM
++  NS_LOG_DEBUG ("DVRP: scheduling the next KAM");
++  
++	Time sendKam = Seconds (m_rng->GetValue (0, 0.5*m_kamTimer.GetSeconds ()));
++  m_nextKeepAliveMessage = Simulator::Schedule (sendKam, &DVRPRoutingProtocol::sendKams, this);
++}
++
++void 
++DVRPRoutingProtocol::SendTriggeredRouteUpdate ()
++{
++  NS_LOG_FUNCTION (this);
++
++  if (m_nextTriggeredUpdate.IsRunning())
++  {
++    NS_LOG_LOGIC ("DVRP: Skipping Triggered Update due to cool-down");
++    return;
++  }
++
++  // Note:  This part id directly inherited from the \RFC{2080}
++  //        After a triggered update is sent, a timer is set between 1s to 5s. 
++  //        Between that time, any other triggered updates are not sent. 
++  //        In addition, triggered updates are omitted if there is a scheduled periodic update.
++  //        Furthermore, only changed routes will be sent in the triggered update.
++
++  NS_LOG_DEBUG ("DVRP: scheduling the next triggered update");
++  
++  Time delay = Seconds (m_rng->GetValue (m_minTriggeredCooldownDelay.GetSeconds (), m_maxTriggeredCooldownDelay.GetSeconds ()));
++  m_nextTriggeredUpdate = Simulator::Schedule (delay, &DVRPRoutingProtocol::DoSendRouteUpdate, this, TRIGGERED);
++}
++
++void 
++DVRPRoutingProtocol::SendPeriodicUpdate (void)
++{
++  NS_LOG_FUNCTION (this);    
++
++  if (m_nextTriggeredUpdate.IsRunning ())
++    m_nextTriggeredUpdate.Cancel ();
++
++  DoSendRouteUpdate (PERIODIC);
++
++  NS_LOG_DEBUG ("DVRP: scheduling the next periodic update");
++  
++  Time delay = m_periodicUpdateDelay + Seconds (m_rng->GetValue (0, 0.05*m_periodicUpdateDelay.GetSeconds ()));
++  m_nextPeriodicUpdate = Simulator::Schedule (delay, &DVRPRoutingProtocol::SendPeriodicUpdate, this);
++}
++
++void 
++DVRPRoutingProtocol::DoSendRouteUpdate (UpdateType updateType)
++{
++  NS_LOG_FUNCTION (this << updateType);
++
++  for (NeighborI it = m_neighborTable.begin (); it != m_neighborTable.end (); it++)
++  {
++    uint32_t interface = it->first->GetInterface ();
++
++    Ptr<Ipv4L3Protocol> l3 = m_ipv4->GetObject<Ipv4L3Protocol> ();
++    Ipv4InterfaceAddress iface = l3->GetAddress (interface,0);
++
++    if (m_interfaceExclusions.find (interface) == m_interfaceExclusions.end ())
++    {
++      // Calculating the number of RUMs that can add to the DVRP Routing Header
++      uint16_t mtu = m_ipv4->GetMtu (interface);
++      uint16_t maxRum = (mtu - Ipv4Header ().GetSerializedSize () - UdpHeader ().GetSerializedSize () - DVRPRoutingHeader ().GetSerializedSize ()) / DVRPRum ().GetSerializedSize ();
++
++      Ptr<Packet> p = Create<Packet> ();
++      SocketIpTtlTag tag;
++      p->RemovePacketTag (tag);
++      tag.SetTtl (1);
++      p->AddPacketTag (tag);
++
++      DVRPRoutingHeader hdr;
++      hdr.SetCommand (RESPONSE); 
++
++      for (RoutesI rtIter = m_routing.begin (); rtIter != m_routing.end (); rtIter++)
++      {
++        NS_LOG_DEBUG ("DVRP: processing Route " << rtIter->first->GetDestNetwork () << " " << int (rtIter->first->GetRouteChanged ()));
++
++        bool splitHorizoning = (rtIter->first->GetInterface () == interface);
++
++        bool isLocalHost = ((rtIter->first->GetDestNetwork () == "127.0.0.1") && (rtIter->first->GetDestNetworkMask () == Ipv4Mask::GetOnes ()));
++
++        // Note: In case of the periodic update, DVRP does not consider about the changed flag.
++        // Note:  all splithorizon routes are omitted.
++        //        routes about the local host is omitted.
++
++        if ((m_splitHorizonStrategy != (SPLIT_HORIZON && splitHorizoning)) && 
++            (!isLocalHost) &&
++            (updateType == PERIODIC || rtIter->first->GetRouteChanged ()))
++        {
++          DVRPRum rum;
++
++          if (rtIter->first->GetValidity () == VALID)
++            rum.SetSequenceNo (rtIter->first->GetSequenceNo () + 2); // for legitimate routes
++          else
++            rum.SetSequenceNo (rtIter->first->GetSequenceNo () + 1); // for broken routes
++
++          rum.SetMatric (rtIter->first->GetMetric () + 1);
++          rum.SetDestAddress (rtIter->first->GetDestNetwork ());
++          rum.SetDestMask (rtIter->first->GetDestNetworkMask ());
++
++          hdr.AddRum (rum);
++        }
++        if (hdr.GetNoe () == maxRum)
++        {
++          p->AddHeader (hdr);
++          
++          NS_LOG_DEBUG ("DVRP: send the update message to : " << iface.GetBroadcast ());
++          
++          //it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (MULT_ADD, MULT_PORT));
++          it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (iface.GetBroadcast (), DVRP_PORT));
++          p->RemoveHeader (hdr);
++          hdr.ClearRums ();
++        }
++      }
++      if (hdr.GetNoe () > 0)
++      {
++        p->AddHeader (hdr);
++        
++        NS_LOG_DEBUG ("DVRP: send the update message to : " << iface.GetBroadcast ());
++     
++        //it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (MULT_ADD, MULT_PORT));
++        it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (iface.GetBroadcast (), DVRP_PORT));
++      }
++    } 
++  }
++  
++  for (RoutesI rtIter = m_routing.begin (); rtIter != m_routing.end (); rtIter++)
++  {
++		if (rtIter->first->GetGateway () == Ipv4Address::GetZero ())
++    {
++    	NS_LOG_DEBUG ("DVRP: Update the sequence number of locally connected networks");
++
++      rtIter->first->SetSequenceNo (rtIter->first->GetSequenceNo () + 2);
++    }
++
++    rtIter->first->SetRouteChanged (false);
++  }
++}
++
++void 
++DVRPRoutingProtocol::Receive (Ptr<Socket> socket)
++{
++  NS_LOG_FUNCTION (this << socket);
++
++  Ptr<Packet> packet = socket->Recv ();
++
++  NS_LOG_DEBUG ("DVRP: Received " << *packet);
++
++
++  Ipv4PacketInfoTag interfaceInfo;
++  if (!packet->RemovePacketTag (interfaceInfo))
++  {
++    NS_ABORT_MSG ("DVRP: no incoming interface for DVRP message, aborting!");
++  }
++
++  SocketIpTtlTag TtlInfoTag;
++  if (!packet->RemovePacketTag (TtlInfoTag))
++  {
++    NS_ABORT_MSG ("DVRP: No TTL tag information attached for DVRP message, aborting!");
++  }
++
++  SocketAddressTag tag;
++  if (!packet->RemovePacketTag (tag))
++  {
++    NS_ABORT_MSG ("DVRP: No incoming sender address for DVRP message, aborting!");
++  }
++
++  uint32_t incomingIf = interfaceInfo.GetRecvIf ();
++  Ptr<Node> node = this->GetObject<Node> ();
++  Ptr<NetDevice> dev = node->GetDevice (incomingIf);
++
++  int32_t ipInterfaceIndex = m_ipv4->GetInterfaceForDevice (dev);
++
++  Ipv4Address senderAddress = InetSocketAddress::ConvertFrom (tag.GetAddress ()).GetIpv4 ();
++  uint16_t senderPort = InetSocketAddress::ConvertFrom (tag.GetAddress ()).GetPort ();
++
++  int32_t interfaceForAddress = m_ipv4->GetInterfaceForAddress (senderAddress);
++
++  if (interfaceForAddress != -1)
++  {
++    NS_LOG_LOGIC ("DVRP: A piggybacked packet, Ignoring it!");
++    return;
++  }
++
++  NS_LOG_INFO ("Handle the request packt.");
++
++  DVRPRoutingHeader hdr;
++  packet->RemoveHeader (hdr);
++
++  if (hdr.GetCommand () == KAM)
++  {
++    NS_LOG_DEBUG ("DVRP: Handle the KAM packet.");
++
++    // Get the actual bounded socket for the received interface.
++		ipInterfaceIndex = GetInterfaceForSocket (socket);
++
++  	if (ipInterfaceIndex == -1)
++  	{
++    	NS_ABORT_MSG ("DVRP: the received socket is wrong. Aborting!");
++  	} 
++
++    HandleKamRequests (hdr, senderAddress, ipInterfaceIndex);
++  }
++  else if (hdr.GetCommand () == REQUEST)
++  {
++    NS_LOG_DEBUG ("DVRP: Handle the route requests.");
++    HandleRouteRequests (hdr, senderAddress, senderPort, ipInterfaceIndex);
++  }
++  else if (hdr.GetCommand () == RESPONSE)
++  {
++    // Todo: implement the authentication based on the neighbor information.
++    // However, when multicasting updates are used, this method has to be further restructured.
++    //NeighborTable::NeighborI neighborRecord;
++    //bool isNeighborPresent = m_neighborTable.FindValidNeighborForAddress (senderAddress, neighborRecord);
++    //if (isNeighborPresent)
++    //{
++    //   // Authenticate the route and handle the route messages
++    //}
++    //else
++    //{
++    //  NS_ABORT_MSG ("DVRP: Sender is not a neighbor of me, aborting!");
++    //}
++    NS_LOG_DEBUG ("DVRP: Handle the route response message.");
++    HandleRouteResponses (hdr, senderAddress, ipInterfaceIndex);        
++  }
++  else
++  {
++    NS_LOG_DEBUG ("Ignoring message with unknown command: " << int (hdr.GetCommand ()));
++  }
++  return;
++}
++
++void 
++DVRPRoutingProtocol::HandleKamRequests (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint32_t incomingInterface)
++{
++  NS_LOG_FUNCTION (this << senderAddress << incomingInterface);
++
++  std::list<DVRPKAMHeader> kams = hdr.GetKamList ();
++
++  if (kams.empty ())
++  {
++     NS_LOG_DEBUG ( "DVRP: No Keep Alive Messages attached.");
++    return;
++  }
++
++  if (m_interfaceExclusions.find (incomingInterface) == m_interfaceExclusions.end ())
++  {
++    for (std::list<DVRPKAMHeader>::iterator iter = kams.begin (); iter != kams.end (); iter++)
++    {
++      NeighborI neighborRecord;
++
++      Ptr<Socket> receivedSocket = GetSocketForInterface (incomingInterface);
++
++      if (receivedSocket == 0)
++      {
++        NS_ABORT_MSG ("No matching socket found for the incoming interface, aborting!");
++      }
++
++      bool isNeighborPresent = FindNeighbor (iter->GetGateway (), neighborRecord);
++
++      if (!isNeighborPresent)
++      {
++        NS_LOG_DEBUG ("DVRP: Adding the new neighbor record" <<  iter->GetGateway ());
++
++        DVRPNeighborEntry* newNeighbor = new  DVRPNeighborEntry ( iter->GetGateway (),
++                                                                    iter->GetGatewayMask (),
++                                                                    incomingInterface,
++                                                                    receivedSocket,
++																																		VALID);
++
++        AddNeighbor (newNeighbor);
++        
++        //Requests the routing table of the newly added neighbor
++        SendRouteRequestTo (iter->GetGateway ());
++      }
++      else
++      {
++        NS_LOG_DEBUG ("DVRP: Updating the new neighbor record" <<  neighborRecord->first->GetNeighborAddress ());
++
++        DVRPNeighborEntry* existingNeighbor = new  DVRPNeighborEntry ( neighborRecord->first->GetNeighborAddress (),
++                                                                    neighborRecord->first->GetNeighborMask (),
++                                                                    neighborRecord->first->GetInterface (),
++                                                                    neighborRecord->first->GetSocket (),
++																																		VALID);
++  
++        UpdateNeighbor (existingNeighbor);
++      }
++    }      
++  }
++}
++
++void 
++DVRPRoutingProtocol::HandleRouteRequests (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint16_t senderPort, uint32_t incomingInterface)
++{
++  NS_LOG_FUNCTION (this << senderAddress << senderPort << incomingInterface);
++  
++  // Note: at the moment the entire routing table will be sent.
++  // no selective routes requests are implemented in this implementation.
++  
++  std::list<DVRPRum> rums = hdr.GetRumList ();
++  
++  if (rums.empty ())
++  {
++    NS_LOG_LOGIC ("DVRP: Ignoring an update message with no requests: " << incomingInterface);
++    return;
++  }
++  
++  if (m_interfaceExclusions.find (incomingInterface) != m_interfaceExclusions.end ())
++  {
++    NS_LOG_LOGIC ("DVRP: Ignoring an update message from an excluded interface: " << senderAddress);
++    return;
++  }
++  
++  NeighborI foundNeighbor;
++  bool neighborFound = FindValidNeighbor (senderAddress, foundNeighbor);
++  
++  if (!neighborFound)
++  {
++    // Note: Note that in case we use multicasting for requesting routes, this method is no longer valid
++    NS_LOG_LOGIC ("DVRP: There is no neighbor registered for: " << senderAddress);
++    return;    
++  } 
++  else
++  { 
++    Ipv4Address broadAddress = senderAddress.GetSubnetDirectedBroadcast (foundNeighbor->first->GetNeighborMask ());
++          
++    Ptr<Packet> p = Create<Packet> ();
++    SocketIpTtlTag tag;
++    p->RemovePacketTag (tag);
++    tag.SetTtl (1);
++    p->AddPacketTag (tag);
++
++    DVRPRoutingHeader hdr;
++    hdr.SetCommand (RESPONSE); 
++    
++    // Calculating the number of RUMs that can add to the DVRP Routing Header
++    uint16_t mtu = m_ipv4->GetMtu (foundNeighbor->first->GetInterface ());
++    uint16_t maxRum = (mtu - Ipv4Header ().GetSerializedSize () - UdpHeader ().GetSerializedSize () - DVRPRoutingHeader ().GetSerializedSize ()) / DVRPRum ().GetSerializedSize ();      
++         
++    for (RoutesI rtIter = m_routing.begin (); rtIter != m_routing.end (); rtIter++)
++    {
++      NS_LOG_DEBUG ("DVRP: Processing Route " << rtIter->first->GetDestNetwork () << " " << rtIter->first->GetRouteChanged ());
++
++      bool splitHorizoning = (rtIter->first->GetInterface () == foundNeighbor->first->GetInterface ());
++
++      bool isLocalHost = ((rtIter->first->GetDestNetwork () == "127.0.0.1") && (rtIter->first->GetDestNetworkMask () == Ipv4Mask::GetOnes ()));
++
++      // Note: Split horizon is considered while responding to a route request
++      if ((m_splitHorizonStrategy != (SPLIT_HORIZON && splitHorizoning)) && 
++          (!isLocalHost) &&
++          (rtIter->first->GetValidity () == VALID))
++      {
++        DVRPRum rum;
++
++        rum.SetSequenceNo (rtIter->first->GetSequenceNo () + 2);
++        rum.SetMatric (rtIter->first->GetMetric () + 1);
++        rum.SetDestAddress (rtIter->first->GetDestNetwork ());
++        rum.SetDestMask (rtIter->first->GetDestNetworkMask ());
++
++        hdr.AddRum (rum);
++      }
++      if (hdr.GetNoe () == maxRum)
++      {
++        p->AddHeader (hdr);
++        NS_LOG_DEBUG ("DVRP: reply to the request came from " << senderAddress);
++        
++        //it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (MULT_ADD, MULT_PORT));
++        foundNeighbor->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (broadAddress, DVRP_LISTEN_PORT));
++        p->RemoveHeader (hdr);
++        hdr.ClearRums ();
++      }
++    }
++    if (hdr.GetNoe () > 0)
++    {
++      p->AddHeader (hdr);
++      NS_LOG_DEBUG ("DVRP: reply to the request came from " << senderAddress);
++   
++      //it->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (MULT_ADD, MULT_PORT));
++      foundNeighbor->first->GetSocket ()->SendTo (p, 0, InetSocketAddress (broadAddress, DVRP_LISTEN_PORT));
++    } 
++  }
++}
++
++void 
++DVRPRoutingProtocol::HandleRouteResponses (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint32_t incomingInterface)
++{
++  NS_LOG_FUNCTION (this << senderAddress << incomingInterface);
++
++  //validate RUMs
++  NS_LOG_DEBUG ("DVRP: Invalidating all unresponsive and broken routes.");
++
++  if (m_interfaceExclusions.find (incomingInterface) != m_interfaceExclusions.end ())
++  {
++    NS_LOG_LOGIC ("DVRP: Ignoring an update message from an excluded interface: " << incomingInterface);
++    return;
++  }
++
++  std::list<DVRPRum> rums = hdr.GetRumList ();
++  bool changed = false;
++
++  for (std::list<DVRPRum>::iterator it = rums.begin (); it != rums.end (); it++)
++  {
++    if ((it->GetSequenceNo () % 2) != 0)
++    {
++      bool invalidated = InvalidateBrokenRoutes (it->GetDestAddress (), it->GetDestMask ());
++
++			// As there are invalidated routes, an immediate triggered update is triggered
++      // Note: However,triggered updates have to wait the compensating time (1-5s)
++      if (invalidated)
++        changed = true;//set for SendTriggeredRouteUpdate ();
++      continue;
++    }
++    else
++    {
++      if (IsLocalRouteAvailable (it->GetDestAddress (), it->GetDestMask ()))
++      {
++        NS_LOG_LOGIC ("DVRP: Route is about my local network. Skip the RUM");
++        continue;
++      }
++      
++      RoutesI foundRoute;
++      bool routeFound;
++      
++      routeFound  = FindRouteRecord (it->GetDestAddress (), it->GetDestMask (), foundRoute);
++      
++      if (!routeFound)
++      {
++        NS_LOG_LOGIC ("DVRP: New network is received and add it to the routing table");
++        
++				AddNetworkRouteTo (it->GetDestAddress (), it->GetDestMask (), senderAddress, incomingInterface, it->GetMatric (), it->GetSequenceNo (), m_routeTimeoutDelay, m_garbageCollectionDelay);      
++
++        changed = true;
++        continue;  
++      }
++      else
++      {
++        if (foundRoute->first->GetSequenceNo () < it->GetSequenceNo ())
++        {
++          if (foundRoute->first->GetMetric () > it->GetMatric ())
++          {
++            if (foundRoute->first->GetGateway () != senderAddress)
++            {
++              NS_LOG_LOGIC ("DVRP: found a best route for the destination " << it->GetDestAddress () << "via " << senderAddress <<". update the route." );
++              DVRPRoutingEntry* route = new DVRPRoutingEntry (it->GetDestAddress (), it->GetDestMask (), senderAddress, incomingInterface); 
++
++              delete foundRoute->first;
++              foundRoute->first = route;
++            }
++            NS_LOG_LOGIC ("DVRP: found a best route for the destination. However, the gateway is same.");            
++            foundRoute->first->SetMetric (it->GetMatric ());
++            foundRoute->first->SetSequenceNo (it->GetSequenceNo ());
++            foundRoute->first->SetValidity (VALID);
++            foundRoute->first->SetRouteChanged (true); 
++
++            foundRoute->second.Cancel ();
++
++            Time delay = m_routeTimeoutDelay + Seconds (m_rng->GetValue (0, 5));
++            foundRoute->second = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, foundRoute->first);
++
++            changed = true;
++            continue;
++          }
++          else if (foundRoute->first->GetMetric () == it->GetMatric ())
++          {
++            if (foundRoute->first->GetGateway () == senderAddress)
++            {
++              NS_LOG_LOGIC ("DVRP: cost is same and the gateway is also same. Reschedule the expiration time");
++              foundRoute->second.Cancel ();
++
++              foundRoute->first->SetValidity (VALID);
++
++              Time delay = m_routeTimeoutDelay + Seconds (m_rng->GetValue (0, 5));
++              foundRoute->second = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, foundRoute->first);
++              
++              continue;              
++            }
++            else
++            {
++              if (Simulator::GetDelayLeft (foundRoute->second) < m_routeTimeoutDelay/2)
++              {
++                NS_LOG_LOGIC ("DVRP: cost is same and the gateway is different. Therefore, Update the route for the new gateway " << senderAddress);                            
++                DVRPRoutingEntry* route = new DVRPRoutingEntry (it->GetDestAddress (), it->GetDestMask (), senderAddress, incomingInterface); 
++
++                delete foundRoute->first;
++                foundRoute->first = route;
++
++                foundRoute->first->SetMetric (it->GetMatric ());
++                foundRoute->first->SetSequenceNo (it->GetSequenceNo ());
++                foundRoute->first->SetValidity (VALID);
++                foundRoute->first->SetRouteChanged (true); 
++
++                foundRoute->second.Cancel ();
++
++                Time delay = m_routeTimeoutDelay + Seconds (m_rng->GetValue (0, 5));
++                foundRoute->second = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, foundRoute->first);
++
++                changed = true;
++                continue;
++              }
++            }
++          }
++          else if ((foundRoute->first->GetMetric () < it->GetMatric ()) && (foundRoute->first->GetGateway () == senderAddress))
++          {
++            // 16 is based on the RIPv2 and RIPng RFCs
++            if (it->GetMatric () < 16)
++            {
++              NS_LOG_LOGIC ("DVRP: cost is higher. But not exceeds the maximum limit. Further, the gateway is same. Update the route");                            
++              foundRoute->first->SetMetric (it->GetMatric ());
++              foundRoute->first->SetSequenceNo (it->GetSequenceNo ());
++              foundRoute->first->SetValidity (VALID);
++              foundRoute->first->SetRouteChanged (true); 
++
++              foundRoute->second.Cancel ();
++
++              Time delay = m_routeTimeoutDelay + Seconds (m_rng->GetValue (0, 5));
++              foundRoute->second = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, foundRoute->first);
++
++              changed = true;
++              continue;
++            }
++            else
++            {
++              NS_LOG_LOGIC ("DVRP: cost is higher and it exceeds the maximum limit. Invalidate the route");                            
++              foundRoute->second.Cancel ();
++
++              Time delay = Seconds (m_routeTimeoutDelay.GetSeconds () / 10) + Seconds (m_rng->GetValue (0, 5));
++              foundRoute->second = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, foundRoute->first);
++
++              changed = true;
++              continue;
++            }
++          }
++        }
++        else
++        {
++          NS_LOG_LOGIC ("DVRP: as the sequence number is lower that what I have, ignore the route.");
++          continue;
++        }
++      }  
++    }
++  } 
++
++  if (changed)
++  {
++    SendTriggeredRouteUpdate ();
++  }    
++}
++
++void 
++DVRPRoutingProtocol::AddNetworkRouteTo (Ipv4Address network, Ipv4Mask networkMask, Ipv4Address nextHop, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime)
++{
++  NS_LOG_FUNCTION (this << network << networkMask << nextHop << interface);
++
++  DVRPRoutingEntry* route = new DVRPRoutingEntry (network, networkMask, nextHop, interface);
++  route->SetSequenceNo (sequenceNo);
++  route->SetMetric (metric);
++  route->SetValidity (VALID);
++  route->SetRouteChanged (true); 
++
++  EventId invalidateEvent;
++  
++  if (network == "0.0.0.0" && networkMask == Ipv4Mask::GetZero ())
++  {
++    // Add the default Route. As the default route is added manual by either
++    // another routing protocol or administrator, this route is not set to expire. 
++    // We add the route to the routing table as does for a normal route.
++    // However, as this route is not setting to expire, we do not set the invalidate event.
++    // Further, as the route is set as valid, the route will be advertise in periodic update.
++    // Thus, as the route is not going to change, the route is not included in to the triggered update.
++    
++    invalidateEvent = EventId ();
++  }
++  else
++  {
++    Time delay = timeoutTime + Seconds (m_rng->GetValue (0, 5));
++    invalidateEvent = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, route);
++  }
++
++  NS_LOG_LOGIC ("DVRP: add the route " << *route << " to the routing table");
++  m_routing.push_front (std::make_pair (route, invalidateEvent));
++}
++
++void 
++DVRPRoutingProtocol::AddNetworkRouteTo (Ipv4Address network, Ipv4Mask networkMask, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime)
++{
++  NS_LOG_FUNCTION (this << network << networkMask << interface);
++
++  DVRPRoutingEntry* route = new DVRPRoutingEntry (network, networkMask, interface);
++  route->SetSequenceNo (sequenceNo);
++  route->SetMetric (metric);
++  route->SetValidity (VALID);
++  route->SetRouteChanged (true); 
++
++  EventId invalidateEvent;
++
++  if ((timeoutTime.GetSeconds () == 0) && (garbageCollectionTime.GetSeconds () == 0))
++    invalidateEvent = EventId ();
++  else
++  {
++    Time delay = timeoutTime + Seconds (m_rng->GetValue (0, 5));
++    EventId invalidateEvent = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, route);
++  }
++
++  NS_LOG_LOGIC ("DVRP: add the route " << *route << " to the routing table");
++  m_routing.push_front (std::make_pair (route, invalidateEvent));
++}
++
++void 
++DVRPRoutingProtocol::AddHostRouteTo (Ipv4Address host, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime)
++{
++  NS_LOG_FUNCTION (this << host << interface);
++
++  DVRPRoutingEntry* route = new DVRPRoutingEntry (host, interface);
++
++  if (host == "127.0.0.1")
++  {
++    route->SetValidity (LHOST); // Neither valid nor invalid
++    route->SetSequenceNo (0);
++    route->SetMetric (0);
++    route->SetRouteChanged (false); 
++    m_routing.push_front (std::make_pair (route, EventId ()));
++  }
++  else
++  {
++    route->SetValidity (VALID);
++    route->SetSequenceNo (sequenceNo);
++    route->SetMetric (metric);
++    route->SetRouteChanged (true); 
++
++    Time delay = timeoutTime + Seconds (m_rng->GetValue (0, 5));
++    EventId invalidateEvent = Simulator::Schedule (delay, &DVRPRoutingProtocol::InvalidateRoute, this, route);
++
++    NS_LOG_LOGIC ("DVRP: add the route " << *route << " to the routing table");
++    m_routing.push_front (std::make_pair (route, invalidateEvent));
++  }
++}
++
++void 
++DVRPRoutingProtocol::AddDefaultRouteTo (Ipv4Address nextHop, uint32_t interface)
++{
++  NS_LOG_FUNCTION (this << nextHop << interface);
++    
++  AddNetworkRouteTo (Ipv4Address ("0.0.0.0"), Ipv4Mask::GetZero (), nextHop, interface, 0, 0, Seconds (0), Seconds (0));
++}
++
++void 
++DVRPRoutingProtocol::InvalidateRoute (DVRPRoutingEntry *route)
++{
++  NS_LOG_FUNCTION (this << *route);
++
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++    {
++      if (it->first == route)
++        {
++          it->first->SetValidity (INVALID);
++          it->first->SetRouteChanged (true);
++          it->second.Cancel ();
++          it->second = Simulator::Schedule (m_garbageCollectionDelay, &DVRPRoutingProtocol::DeleteRoute, this, it->first);
++          return;
++        }
++    }
++  NS_LOG_INFO ("DVRP: Cannot find a route to invalidate.");
++}
++
++void 
++DVRPRoutingProtocol::DeleteRoute (DVRPRoutingEntry *route)
++{
++  NS_LOG_FUNCTION (this << *route);
++
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++    {
++      if (it->first == route)
++        {
++          delete route;
++          m_routing.erase (it);
++          return;
++        }
++    }
++  NS_LOG_INFO ("DVRP: Cannot find a route to delete.");
++}
++
++bool 
++DVRPRoutingProtocol::InvalidateRoutesForInterface (uint32_t interface)
++{
++  NS_LOG_FUNCTION (this << interface);
++
++  bool retVal = false;
++
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++  {
++    if ((it->first->GetInterface () == interface) && (it->first->GetValidity () == VALID))
++    {
++      it->first->SetValidity (INVALID);
++      it->first->SetRouteChanged (true);
++      
++      it->second.Cancel ();
++      it->second = Simulator::Schedule (m_garbageCollectionDelay, &DVRPRoutingProtocol::DeleteRoute, this, it->first);
++      retVal = true;
++    }
++  }
++  
++  if (retVal == false)
++    NS_LOG_INFO ("DVRP: no route found for the given interface.");    
++  
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::InvalidateBrokenRoutes(Ipv4Address destination, Ipv4Mask destinationMask)
++{
++  NS_LOG_FUNCTION (this << destination << destinationMask);
++  
++  bool retVal = false;
++
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++  {
++    if ((it->first->GetDestNetwork () == destination) && 
++				(it->first->GetDestNetworkMask () == destinationMask) && 
++				(it->first->GetValidity () == VALID))
++    {
++      it->first->SetValidity (INVALID);
++      it->first->SetRouteChanged (true);
++      
++      it->second.Cancel ();
++      it->second = Simulator::Schedule (m_garbageCollectionDelay, &DVRPRoutingProtocol::DeleteRoute, this, it->first);
++      retVal = true;
++    }
++  }
++  
++  if (retVal == false)
++    NS_LOG_INFO ("DVRP: no route found for the given destination network.");
++  
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::InvalidateRoutesForGateway (Ipv4Address gateway)
++{
++  NS_LOG_FUNCTION (this << gateway);
++  
++  bool retVal = false;
++
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++  {
++    if ((it->first->GetGateway () == gateway) &&
++				(it->first->GetValidity () == VALID))
++    {
++      it->first->SetValidity (INVALID);
++      it->first->SetRouteChanged (true);
++      
++      it->second.Cancel ();
++      it->second = Simulator::Schedule (m_garbageCollectionDelay, &DVRPRoutingProtocol::DeleteRoute, this, it->first);
++      retVal = true;
++    }
++  }
++  if (retVal == false)
++    NS_LOG_INFO ("DVRP: no route found for the given gateway.");
++    
++  return retVal;
++}
++
++bool
++DVRPRoutingProtocol::IsLocalRouteAvailable (Ipv4Address address, Ipv4Mask mask)
++{
++  bool retVal = false;
++
++  for (RoutesI it = m_routing.begin ();  it != m_routing.end (); it++)
++  {
++    if ((it->first->GetDestNetwork () == address) &&
++        (it->first->GetDestNetworkMask () == mask) &&
++        (it->first->GetGateway () == Ipv4Address::GetZero ()))
++    {
++      return (retVal = true);
++    }
++  }
++  return retVal;   
++}
++
++bool
++DVRPRoutingProtocol::FindRouteRecord (Ipv4Address address, Ipv4Mask mask, RoutesI &foundRoute)
++{
++  bool retVal = false;
++
++  for (RoutesI it = m_routing.begin ();  it!= m_routing.end (); it++)
++  {
++    if ((it->first->GetDestNetwork () == address) &&
++        (it->first->GetDestNetworkMask () == mask) &&
++        (it->first->GetGateway () != Ipv4Address::GetZero ()))
++    {
++      foundRoute = it;
++      retVal = true;
++      break;
++    }
++  }
++  return retVal;    
++}
++
++Ptr<Ipv4Route> 
++DVRPRoutingProtocol::RouteOutput (Ptr<Packet> p, const Ipv4Header &header, Ptr<NetDevice> oif,
++                            Socket::SocketErrno &sockerr)
++{
++  NS_LOG_FUNCTION (this << header << oif);
++  
++  Ptr<Ipv4Route> rtEntry = 0;
++  Ipv4Address destination = header.GetDestination ();
++  
++  if (destination.IsMulticast ())
++  {
++    // Note:  Multicast routes for outbound packets are stored in the normal unicast table.
++    // This is a well-known property of sockets implementation on many Unix variants.
++    // So, just log it and follow the static route search for multicasting also
++    NS_LOG_LOGIC ("RouteOutput (): Multicast destination");
++  }
++  
++  rtEntry  = LookupRoute (destination, oif);
++  
++  if (rtEntry)
++  {
++    NS_LOG_LOGIC ("DVRP: found the route" << rtEntry);  
++    sockerr = Socket::ERROR_NOTERROR;
++  }
++  else
++  {
++    NS_LOG_LOGIC ("DVRP: no route entry found. Returning the Socket Error");  
++    sockerr = Socket::ERROR_NOROUTETOHOST;
++  }
++  return rtEntry;  
++}
++
++bool 
++DVRPRoutingProtocol::RouteInput (Ptr<const Packet> p, const Ipv4Header &header, Ptr<const NetDevice> idev,
++                 UnicastForwardCallback ucb, MulticastForwardCallback mcb, 
++                 LocalDeliverCallback lcb, ErrorCallback ecb)
++{
++  NS_LOG_FUNCTION (this << p << header << header.GetSource () << header.GetDestination () << idev);
++  
++  bool retVal = false;
++  
++  NS_ASSERT (m_ipv4 != 0);
++  NS_ASSERT (m_ipv4->GetInterfaceForDevice (idev) >= 0);
++  
++  uint32_t iif = m_ipv4->GetInterfaceForDevice (idev);
++  Ipv4Address dst = header.GetDestination ();
++  
++  if (dst.IsMulticast ())
++  {
++    NS_LOG_LOGIC ("DVRP: Multicast routes are not supported by the DVRP");
++    return (retVal = false); // Let other routing protocols try to handle this
++  }
++  
++  // First find the local interfaces and forward the packet locally.
++  // Note: As T. Pecorella mentioned in the RIPng implementation,
++  // this method is also check every interface before forward the packet among the local interfaces.
++  // However, if we enable the configuration option as mentioned in the \RFC{1222},
++  // this forwarding can be done bit intelligently.
++  
++  for (uint32_t j = 0; j < m_ipv4->GetNInterfaces (); j ++)
++  {
++    for (uint32_t i = 0; i < m_ipv4->GetNAddresses (j); i ++)
++    {
++      Ipv4InterfaceAddress iface = m_ipv4->GetAddress (j, i);
++      Ipv4Address address = iface.GetLocal ();
++    
++      if (address.IsEqual (header.GetDestination ()))
++      {
++        if (j == iif)
++        {
++          NS_LOG_LOGIC ("DVRP: packet is for me and forwarding it for the interface " << iif);
++        }
++        else
++        {
++          NS_LOG_LOGIC ("DVRP: packet is for me but for different interface " << j);
++        }
++        
++        lcb (p, header, iif);
++        return (retVal = true);
++      }
++      
++      NS_LOG_LOGIC ("Address " << address << " is not a match");
++    }
++  }
++  
++  // Check the input device supports IP forwarding
++  if (m_ipv4->IsForwarding (iif) == false)
++  {
++    NS_LOG_LOGIC ("DVRP: packet forwarding is disabled for this interface " << iif);
++    
++    ecb (p, header, Socket::ERROR_NOROUTETOHOST);
++    return (retVal = false);
++  }
++  
++  // Finally, check for route and forwad the packet to the next hop
++  NS_LOG_LOGIC ("DVRP: finding a route in the routing table");
++  
++  Ptr<Ipv4Route> route = LookupRoute (header.GetDestination ());
++  
++  if (route != 0)
++  {
++    NS_LOG_LOGIC ("DVRP: found a route and calling uni-cast callback");
++    ucb (route, p, header);  // uni-cast forwarding callback
++    return (retVal = true);
++  }
++  else
++  {
++    NS_LOG_LOGIC ("DVRP: no route found");
++    return (retVal = false);      
++  }
++}
++
++Ptr<Ipv4Route>
++DVRPRoutingProtocol::LookupRoute (Ipv4Address address, Ptr<NetDevice> dev)
++{
++  NS_LOG_FUNCTION (this << address << dev);
++  
++  Ptr<Ipv4Route> rtentry = 0;
++  
++  // Note: if the packet is destined for local multicasting group, 
++  // the relevant interfaces has to be specified while looking up the route
++  if(address.IsLocalMulticast ())
++  {
++    NS_ASSERT_MSG (m_ipv4->GetInterfaceForDevice (dev), "DVRP: destination is for multicasting, and however, no interface index is given!");
++    
++    rtentry = Create<Ipv4Route> ();
++    
++    rtentry->SetSource (m_ipv4->SelectSourceAddress (dev, address, Ipv4InterfaceAddress::LINK)); // has to be clarified
++    rtentry->SetDestination (address);
++    rtentry->SetGateway (Ipv4Address::GetZero ());
++    rtentry->SetOutputDevice (dev);
++    
++    return rtentry;      
++  }
++  
++  //Now, select a route from the routing table which matches the destination address
++  
++  for (RoutesI it = m_routing.begin (); it != m_routing.end (); it++)
++  {
++    DVRPRoutingEntry* routeEntry = it->first;
++    
++    if (routeEntry->GetValidity () == VALID)
++    {
++      Ipv4Address destination  = routeEntry->GetDestNetwork ();
++      Ipv4Mask mask = routeEntry->GetDestNetworkMask ();
++      
++      NS_LOG_LOGIC ("DVRP: searching for a route to " << address << ", with the mask " << mask);
++      
++      if (mask.IsMatch (address, destination))
++      {
++        NS_LOG_LOGIC ("DVRP: found a route " << routeEntry << ", with the mask " << mask);
++        
++        // check the device is given and the packet can be output using this device
++        if ((!dev) || (dev == m_ipv4->GetNetDevice (routeEntry->GetInterface ())))
++        {
++          Ipv4RoutingTableEntry* route = routeEntry;
++          uint32_t interfaceIndex = route->GetInterface ();
++    
++          rtentry = Create<Ipv4Route> ();
++          
++          rtentry->SetDestination (route->GetDest ());
++          rtentry->SetGateway (route->GetGateway ());
++          rtentry->SetOutputDevice (m_ipv4->GetNetDevice (interfaceIndex));            
++          rtentry->SetSource (m_ipv4->SelectSourceAddress (m_ipv4->GetNetDevice (interfaceIndex), route->GetDest (), Ipv4InterfaceAddress::GLOBAL)); // has to be clarified  
++          
++          // As the route is found, no need of iterating on the routing table any more.
++          NS_LOG_LOGIC ("DVRP: found a match for the destination " << rtentry->GetDestination () << " via " << rtentry->GetGateway ());          
++          break;          
++        }
++      }
++    }
++  }
++
++  return rtentry;
++}
++
++Ptr<Socket> 
++DVRPRoutingProtocol::GetSocketForInterface (uint32_t interface)
++{
++  NS_LOG_FUNCTION (this << interface);
++
++  Ptr<Socket> sock = 0;
++  if (!m_sendSocketList.empty ())    
++  {
++    for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++    {
++      if (iter->second == interface)
++      {
++         return (sock = iter->first);
++      }
++    }
++  }
++  return (sock = 0);
++}
++
++int32_t 
++DVRPRoutingProtocol::GetInterfaceForSocket (Ptr<Socket> socket)
++{ 
++  NS_LOG_FUNCTION (this << socket);
++
++  int32_t interface = -1;
++  if (!m_sendSocketList.empty ())    
++  {
++    for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++    {
++      if (iter->first == socket)
++      {
++         return (interface = iter->second);
++      }
++    }
++  }
++  return (interface = -1);
++}
++
++void 
++DVRPRoutingProtocol::DoDispose ()
++{
++  NS_LOG_FUNCTION (this);
++  
++	m_neighborTable.clear ();
++  m_routing.clear ();
++
++  for (SocketListI iter = m_sendSocketList.begin (); iter != m_sendSocketList.end (); iter++ )
++  {
++    iter->first->Close ();
++  }
++  m_sendSocketList.clear ();
++  m_recvSocket->Close ();
++  m_recvSocket = 0;
++
++  m_nextKeepAliveMessage.Cancel ();
++  m_nextKeepAliveMessage = EventId ();
++  
++  m_nextTriggeredUpdate.Cancel ();
++  m_nextTriggeredUpdate = EventId ();
++
++  m_nextPeriodicUpdate.Cancel ();
++  m_nextPeriodicUpdate = EventId ();
++
++  m_ipv4 = 0;
++
++}
++
++/*
++*  DVRPRoutingEntry
++*/
++
++DVRPRoutingEntry::DVRPRoutingEntry () : m_sequenceNo (0),
++                                        m_metric (0),
++                                        m_changed (false),
++                                        m_validity (INVALID)
++{
++  /*cstrctr*/
++}
++
++DVRPRoutingEntry::DVRPRoutingEntry (Ipv4Address network, 
++                                    Ipv4Mask networkMask, 
++                                    Ipv4Address nextHop, 
++                                    uint32_t interface) :
++                                    Ipv4RoutingTableEntry (DVRPRoutingEntry::CreateNetworkRouteTo
++(network, networkMask, nextHop, interface)), m_sequenceNo (0),
++                                             m_metric (0),
++                                             m_changed (false),
++                                             m_validity (INVALID)
++{
++  /*cstrctr*/
++}
++
++DVRPRoutingEntry::DVRPRoutingEntry (Ipv4Address network, 
++                                    Ipv4Mask networkMask,
++                                    uint32_t interface) :
++                                    Ipv4RoutingTableEntry (DVRPRoutingEntry::CreateNetworkRouteTo
++(network, networkMask, interface)), m_sequenceNo (0),
++                                    m_metric (0),
++                                    m_changed (false),
++                                    m_validity (INVALID)
++{
++  /*cstrctr*/
++}
++
++DVRPRoutingEntry::DVRPRoutingEntry (Ipv4Address host,
++                                    uint32_t interface) :
++                                    Ipv4RoutingTableEntry (DVRPRoutingEntry::CreateHostRouteTo
++(host, interface)), m_sequenceNo (0),
++                    m_metric (0),
++                    m_changed (false),
++                    m_validity (INVALID)
++{
++  /*cstrctr*/
++}
++
++DVRPRoutingEntry::~DVRPRoutingEntry ()
++{
++  /*dstrctr*/
++}
++
++std::ostream & operator << (std::ostream& os, const DVRPRoutingEntry& rte)
++{
++  os << static_cast<const Ipv4RoutingTableEntry &>(rte);
++  os << ", metric: " << int (rte.GetMetric ());
++
++  return os;
++}
++
++/* 
++* DVRP Neighbor Table Entry
++*/
++
++DVRPNeighborEntry::DVRPNeighborEntry (Ipv4Address neighborAddress,
++                                      Ipv4Mask neighborMask, 
++                                      uint32_t interface, 
++                                      Ptr<Socket> socket,
++                                      Validity validity): 
++                                        m_neighborAddress (neighborAddress),
++                                        m_neighborMask (neighborMask),
++                                        m_interface (interface),
++                                        m_socket (socket),
++                                        m_neighborValidity (validity)
++{
++  // Constructor
++}
++
++DVRPNeighborEntry::~DVRPNeighborEntry()
++{
++  // Destructor
++}
++
++//  std::ostream& operator<< (std::ostream& os, NeighborTableEntry const& neighbor)
++//  {
++//    os << static_cast<const NeighborTableEntry &>(neighbor);
++//    os << ", NeighborAddress: " << int (neighbor.GetNeighborAddress ()) << ",Interface: " << int (neighbor.GetInterface ());
++//
++//    return os;
++//  }
++
++/* 
++* DVRP Neighbor Table management 
++*/
++
++void 
++DVRPRoutingProtocol::AddNeighbor (DVRPNeighborEntry *neighborEntry)
++{
++  NS_LOG_FUNCTION (this << neighborEntry->GetNeighborAddress());
++  
++  EventId invalidateEvent = Simulator::Schedule ( m_neighborTimeoutDelay, 
++                                                  &DVRPRoutingProtocol::InvalidateNeighbor, 
++                                                  this, 
++                                                  neighborEntry);
++                                                  
++  NS_LOG_LOGIC ("DVRP Neighbor: adding a new neighbor " << neighborEntry->GetNeighborAddress());                                                            
++  m_neighborTable.push_front(std::make_pair (neighborEntry,invalidateEvent));
++}
++
++bool 
++DVRPRoutingProtocol::DeleteNeighbor (DVRPNeighborEntry *neighborEntry)
++{
++  NS_LOG_FUNCTION (this << neighborEntry->GetNeighborAddress ());
++
++  bool retVal = false;
++  NeighborI it;
++  for (it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    if (it->first->GetNeighborAddress () == neighborEntry->GetNeighborAddress ())
++    {
++      delete neighborEntry;
++      m_neighborTable.erase (it);
++      retVal = true;
++      break;
++    }
++  }
++
++  if (!retVal)
++  {
++    NS_LOG_LOGIC ("DVRP Neighbor: neighbor not available: " << neighborEntry->GetNeighborAddress ());
++    return retVal;        
++  }
++
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::InvalidateNeighbor (DVRPNeighborEntry *neighborEntry)
++{
++  NS_LOG_FUNCTION (this << neighborEntry->GetNeighborAddress ());
++
++  bool retVal = false;
++  NeighborI it;
++
++  for (it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    if (it->first->GetNeighborAddress () == neighborEntry->GetNeighborAddress ())
++    {
++      NS_LOG_FUNCTION ("DVRP Neighbor: invalidating route records that refers " << neighborEntry->GetNeighborAddress ());
++
++      InvalidateRoutesForGateway (neighborEntry->GetNeighborAddress ());
++
++			it->first->SetNeighborValidity (INVALID);
++      if (it->second.IsRunning ())
++        it->second.Cancel ();
++      it->second = Simulator::Schedule (m_garbageCollectionDelay, &DVRPRoutingProtocol::DeleteNeighbor, this, it->first);
++      retVal = true;
++      break;
++    }
++  }
++
++  if (!retVal)
++  {
++    NS_LOG_LOGIC ("DVRP Neighbor: neighbor not available: " << neighborEntry->GetNeighborAddress ());
++    return retVal;        
++  }
++
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::UpdateNeighbor (DVRPNeighborEntry *neighborEntry)
++{
++  NS_LOG_FUNCTION (this << neighborEntry->GetNeighborAddress ());
++
++  bool retVal = false;
++  NeighborI it;
++
++  for (it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    if (it->first->GetNeighborAddress () == neighborEntry->GetNeighborAddress ())
++    {
++      delete it->first;
++      it->first = neighborEntry;
++      it->second.Cancel ();
++      it->second = Simulator::Schedule ( m_neighborTimeoutDelay, &DVRPRoutingProtocol::InvalidateNeighbor, this, it->first);
++      retVal = true;
++      break;
++    }
++  }
++
++  if (!retVal)
++  {
++    NS_LOG_LOGIC ("DVRP Neighbor: neighbor not available: " << neighborEntry->GetNeighborAddress ());
++    return retVal;        
++  }
++
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::FindValidNeighbor (Ipv4Address address, NeighborI &retNeighborEntry)
++{
++  NS_LOG_FUNCTION (this << address);
++  bool retVal = false;
++  NeighborI it;
++
++  for (it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    if ((it->first->GetNeighborAddress () == address) && (it->first->GetNeighborValidity () == VALID))
++    {
++      retNeighborEntry = it;
++      retVal = true;
++      break;
++    }
++  }
++
++  if (!retVal)
++  {
++    NS_LOG_LOGIC ("DVRP Neighbor: neighbor not available: " << address);
++    return retVal;        
++  }
++
++  return retVal;
++}
++
++bool 
++DVRPRoutingProtocol::FindNeighbor (Ipv4Address address, NeighborI &retNeighborEntry)
++{
++  NS_LOG_FUNCTION (this << address);
++  
++  bool retVal = false;
++  NeighborI it;
++
++  for (it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    if (it->first->GetNeighborAddress () == address)
++    {
++      retNeighborEntry = it;
++      retVal = true;
++      break;
++    }
++  }
++
++  if (!retVal)
++  {
++    NS_LOG_LOGIC ("DVRP Neighbor: neighbor not available: " << address);
++    return retVal;        
++  }
++
++  return retVal;
++}
++
++void 
++DVRPRoutingProtocol::ReturnNeighborTable (NeighborTableInstance &instance)
++{
++  for (NeighborI it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    instance.push_front(std::make_pair (it->first,it->second));
++  }
++}
++
++void 
++DVRPRoutingProtocol::PrintNeighborTable (Ptr<OutputStreamWrapper> stream) const
++{
++  std::ostream* os = stream->GetStream ();
++
++  *os << "Neighbor Address    Local Interface  Validity" << '\n';
++  *os << "----------------    ---------------  --------" << '\n';
++  for (NeighborCI it = m_neighborTable.begin ();  it!= m_neighborTable.end (); it++)
++  {
++    DVRPNeighborEntry *neighborEntry = it->first;
++    std::ostringstream nw, validity;
++
++    // Address
++    nw << neighborEntry->GetNeighborAddress () << "/" << int (neighborEntry->GetNeighborMask ().GetPrefixLength ());
++    *os << std::setiosflags (std::ios::left) << std::setw (20) << nw.str ();
++
++    // Local Interface
++    *os << std::setiosflags (std::ios::left) << std::setw (17) << neighborEntry->GetInterface ();
++   
++		// Validity of the neighbor record
++    if (neighborEntry->GetNeighborValidity () == VALID)
++      validity << "Valid";
++    else if (neighborEntry->GetNeighborValidity () == INVALID)
++      validity << "Invalid";
++
++    *os << std::setiosflags (std::ios::left) << std::setw (7) << validity.str ();
++    *os << '\n';
++  }
++  *os << "---------------------------------------------" << '\n';  
++}
++
++bool 
++DVRPRoutingProtocol::IsEmpty(void)
++{
++  return (m_neighborTable.empty ())?true:false;
++}
++
++}
++
+diff -uprN dvrppatch/src/dvrpo/model/dvrp.h dvrppatch/src/dvrp/model/dvrp.h
+--- dvrppatch/src/dvrpo/model/dvrp.h	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/model/dvrp.h	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,749 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++
++#ifndef DVRP_H
++#define DVRP_H
++
++#include <cassert>
++#include <list>
++#include <sys/types.h>
++
++#include "ns3/dvrp-header.h"
++
++#include "ns3/ipv4-routing-protocol.h"
++#include "ns3/ipv4-interface.h"
++#include "ns3/ipv4-l3-protocol.h"
++#include "ns3/ipv4-routing-table-entry.h"
++
++#include "ns3/random-variable-stream.h"
++#include "ns3/udp-socket-factory.h"
++#include "ns3/ipv4.h"
++#include "ns3/ipv4-route.h"
++#include "ns3/timer.h"
++#include "ns3/net-device.h"
++#include "ns3/output-stream-wrapper.h"
++
++namespace ns3 {
++
++/**
++ * \defgroup DVRP Distance Vector Routing Protocol.
++ *
++ * The DVRP is a IPv4 unicast only routing protocol, which is developed based on the Bellman-Ford algorithm.
++ * At the time DVRP is developed based on the RFC : \RFC{2453}. 
++ * Note that the DVRP inherits most of the functions defined in aforementioned RFC. 
++ * However, DVRP does not use the Header structures that are used in the RFC, thus it uses its own headers.
++ * Further, DVRP uses request responses methods certainly different compared to both aforementioned RFC. 
++ * Additionally, DVRP has neighbor maintenance for smooth and faster route convergence. 
++ * Importantly, DVRP uses hop count as the metric, and the max hopcount is limited to 16.
++ * In addition, DVRP uses sequence number to determine up-to-date routers. 
++ * The sequence number again used in the DVRP to indicate broken routes. 
++ * ODD values are used to indicate broken routes and event values are used to indicate legitimate routes.   
++ *
++ * The DVRP protocol uses link local broadcast addresses to propagate routing updates. In addition,
++ * DVRP sends Keep Alive Messages (KAM/Hello) to discover adjacency gateways at a time particular interface is up.
++ * Upon receiving a KAM message, the received node adds the sender as the a neighbor, and request its routing table.
++ * After building the neighbor table, based on an expiration timer, neighbors are checked for their connectivity. 
++ * In case a neighbor found that has no connectivity, the neighbor will be invalidated and removed from the
++ * neighbor table along with the relevant routes that are referring the neighbor as the gateway.  
++ 
++ * A router periodically broadcast update messages among the neighbors. Note that:
++ * again the link local broadcast address is used to limit the broadcast among two neighbors.
++ * Triggered updates are implemented based on the aforementioned RFC. 
++ * The cool-down time between two triggered update messages is also implemented as RFC suggest.
++ *
++ * Thanks to triggered updates, the convergence time is shorter for the DVRP routing protocol.
++ * Further, triggered updates are only carry changed routes. 
++ * The route advertisements are prepared as explained in the RFC.
++ * At the time a router receives a Route Update Message (RUM), first DVRP validates
++ * the RUM based on the sequence number. if the sequence numbs is an odd value, all relevant routes are invalidated
++ * from the routing table and triggered update is broadcast among the neighbors.
++ *
++ * The timers are used in the DVRP is almost similar to the aforementioned two RFC. Furthermore, the split horizon
++ * strategy is also similar to the RFC.
++ *
++ * \todo: Add route table compression.
++ *        Use route tags as explained in both RFC.
++ *        Use Multicasting for the route updates
++ *        Use an authentication method to authenticate route updates. 
++ */ 
++
++#define DVRP_PORT 272
++#define DVRP_LISTEN_PORT 273
++
++/**
++ * Split Horizon strategy type.
++ */
++enum SplitHorizonType {
++  NO_SPLIT_HORIZON,//!< No Split Horizon
++  SPLIT_HORIZON,   //!< Split Horizon
++  POISON_REVERSE,  //!< Poison Reverse Split Horizon
++};
++
++/**
++ * Printing Options.
++ */
++enum PrintingOption {
++  DONT_PRINT, //!< Do not print any table (Default state)
++  MAIN_R_TABLE, //!< Print the main routing table
++  N_TABLE, //!< Print the neighbor table
++};
++
++/**
++ * Set the validity of both route and neighbor records 
++ */
++enum Validity {
++  VALID, //!< route and neighbor records are valid
++  INVALID, //!< route and neighbor records are invalid
++  LHOST, //!< indicate that the route is the local host
++};
++
++/**
++ * Set the Update type
++ */
++enum UpdateType
++{
++  PERIODIC, //!< Periodic Update
++  TRIGGERED, //!< Triggered Update
++};
++
++/**
++  * \ingroup DVRP
++  * \brief the neighbor table entry class used in DVRP protocol
++  */
++class DVRPNeighborEntry
++{
++  //DVRPNeighborTableEntry (void);
++
++public:
++
++  /**
++  * \brief Constructor
++  * \param neighborAddress IP address of the sending interface
++  * \param neighborMask network mask of the sending interface
++  * \param interface received interface index
++  * \param socket bound socket
++  */
++  DVRPNeighborEntry ( Ipv4Address neighborAddress = Ipv4Address (),
++                      Ipv4Mask neighborMask = Ipv4Mask (), 
++                      uint32_t interface = 0, 
++                      Ptr<Socket> socket = 0,
++                      Validity validity = INVALID);
++
++  ~DVRPNeighborEntry ();
++
++  /**
++  * \brief Get and Set neighbor's IP address
++  * \param neighborAddress neighbor's IP address
++  * \returns the neighbor's IP address
++  */
++  void SetNeighborAddress (Ipv4Address neighborAddress)
++  {
++    m_neighborAddress = neighborAddress;
++  }
++  Ipv4Address GetNeighborAddress () const
++  {
++    return m_neighborAddress;
++  }
++
++  /**
++  * \brief Get and Set neighbor's network mask
++  * \param neighborAddress neighbor's network mask
++  * \returns the neighbor's network mask
++  */
++  void SetNeighborMask (Ipv4Mask neighborMask)
++  {
++    m_neighborMask = neighborMask;
++  }
++  Ipv4Mask GetNeighborMask () const
++  {
++    return m_neighborMask;
++  }
++
++  /**
++  * \brief Get and Set the interface the locally connected 
++  * \param interface the interface 
++  * \returns the interface 
++  */
++  void SetInterface (uint32_t interface)
++  {
++    m_interface = interface;
++  }
++  uint32_t GetInterface () const
++  {
++    return m_interface;
++  }
++
++  /**
++  * \brief Get and Set the bounded socket
++  * \param neighborAddress the bounded socket
++  * \returns the bounded socket
++  */
++  void SetSocket (Ptr<Socket> socket)
++  {
++    m_socket = socket;
++  }
++  Ptr<Socket> GetSocket () const
++  {
++    return m_socket;
++  }
++
++  /**
++  * \brief Get and Set the neighbor record's status 
++  * the neighbor record's validity is changed according to the expirationtime.
++  * all INVALID records are deleted after the garbage collection time
++  *
++  * \param validity the status of the route
++  * \returns the status of the route record
++  */
++  Validity GetNeighborValidity () const
++  {
++    return Validity (m_neighborValidity);
++  }
++  void SetNeighborValidity (Validity neighborValidity)
++  {
++    m_neighborValidity = neighborValidity;
++  }
++
++private:
++  Ipv4Address m_neighborAddress; //!< address of the Neighbor (this is the sender's interface IP address')
++  Ipv4Mask m_neighborMask;  //!< mask of the sender's IP address'
++  uint32_t m_interface;  //!< the neighbor is connected via this interface
++  Ptr<Socket> m_socket; //!< the neighbor is sending data to this socket (Broadcase listning socket)
++  Validity m_neighborValidity; //!< validity of the neighbor record
++
++};// DVRPNeighborEntry
++/**
++ * \brief Stream insertion operator.
++ *
++ * \param os the reference to the output stream
++ * \param neighbor the neighbor table entry
++ * \returns the reference to the output stream
++ */
++std::ostream& operator<< (std::ostream& os, DVRPNeighborEntry const& neighbor);
++
++/**
++  * \ingroup DVRP
++  * \brief DVRP Routing Table Entry
++ */
++class DVRPRoutingEntry : public Ipv4RoutingTableEntry
++{
++public:
++  DVRPRoutingEntry (void);
++
++  /**
++   * \brief Constructor
++   * \param network network address
++   * \param networkMask network mask of the given destination network
++   * \param nextHop next hop address to route the packet
++   * \param interface interface index
++   */
++  DVRPRoutingEntry (Ipv4Address network = Ipv4Address (), 
++                     Ipv4Mask networkMask = Ipv4Mask (), 
++                     Ipv4Address nextHop = Ipv4Address (), 
++                     uint32_t interface = 0);
++
++  /**
++   * \brief Constructor
++   * \param network network address
++   * \param networkMask network mask of the given destination network
++   * \param interface interface index
++   */
++  DVRPRoutingEntry (Ipv4Address network = Ipv4Address (), 
++                     Ipv4Mask networkMask = Ipv4Mask (),
++                     uint32_t interface = 0);
++
++  /**
++   * \brief Constructor for creating a host route
++   * \param host server's IP address
++   * \param interface connected interface
++   */
++  DVRPRoutingEntry (Ipv4Address host = Ipv4Address (),
++                     uint32_t interface = 0);
++
++  virtual ~DVRPRoutingEntry ();
++
++  /**
++  * \brief Get and Set Sequence Number of the route record
++  * \param sequenceNumber the sequence number of the route record
++  * \returns the sequence number of the route record
++  */
++  uint16_t GetSequenceNo (void) const
++  {
++    return m_sequenceNo;
++  }
++  void SetSequenceNo (uint16_t sequenceNo)
++  {
++    m_sequenceNo = sequenceNo;
++  }
++
++  /**
++  * \brief Get and Set metric 
++  * the metric is the hop count to the destination network
++  * \param metric hop count
++  * \returns the hop count
++  */
++  uint16_t GetMetric (void) const
++  {
++    return m_metric;
++  }
++  void SetMetric (uint16_t metric)
++  {
++    m_metric = metric;
++  }
++
++  /**
++  * \brief Get and Set route's status
++  * The changed routes are scheduled for a triggered update.
++  * After a Triggered/periodic update, changed flag is set to zero.
++  *
++  * \param changed true if the route is changed
++  * \returns true if the route is changed
++  */
++  bool GetRouteChanged (void) const
++  {
++    return m_changed;
++  }
++  void SetRouteChanged (bool changed)
++  {
++    m_changed = changed;
++  }
++
++  /**
++  * \brief Get and Set the route's status 
++  * the route's validity is changed according to the expirationtime.
++  * all new routes are first with status VALID.
++  * all INVALID routes are deleted after the garbage collection time
++  *
++  * \param validity the status of the route
++  * \returns the status of the route record
++  */
++  Validity GetValidity () const
++  {
++    return Validity (m_validity);
++  }
++  void SetValidity (Validity validity)
++  {
++    m_validity = validity;
++  }
++
++private:
++  uint16_t m_sequenceNo; //!< sequence number of the route record
++  uint16_t m_metric; //!< route metric
++  bool m_changed; //!< route has been updated
++  Validity m_validity; //!< validity of the routing record
++}; // DVRP Routing Table Entry
++
++/**
++ * \brief Stream insertion operator.
++ *
++ * \param os the reference to the output stream
++ * \param route the Ipv4 routing table entry
++ * \returns the reference to the output stream
++ */
++std::ostream& operator<< (std::ostream& os, DVRPRoutingEntry const& route);
++
++/**
++ * \ingroup DVRP
++ *
++ * \brief the DVRP protocol management methods and vriables.
++ */
++class DVRPRoutingProtocol : public Ipv4RoutingProtocol
++{
++public:
++  DVRPRoutingProtocol ();
++  virtual ~DVRPRoutingProtocol ();
++
++  /**
++   * \brief Get the type ID
++   * \return type ID
++   */
++  static TypeId GetTypeId (void);
++
++  // \name From Ipv4RoutingProtocol
++  // \{
++  Ptr<Ipv4Route> RouteOutput (Ptr<Packet> p, const Ipv4Header &header, Ptr<NetDevice> oif,
++                              Socket::SocketErrno &sockerr);
++  bool RouteInput (Ptr<const Packet> p, const Ipv4Header &header, Ptr<const NetDevice> idev,
++                   UnicastForwardCallback ucb, MulticastForwardCallback mcb, 
++                   LocalDeliverCallback lcb, ErrorCallback ecb);
++  virtual void NotifyInterfaceUp (uint32_t interface);
++  virtual void NotifyInterfaceDown (uint32_t interface);
++  virtual void NotifyAddAddress (uint32_t interface, Ipv4InterfaceAddress address);
++  virtual void NotifyRemoveAddress (uint32_t interface, Ipv4InterfaceAddress address);
++  virtual void SetIpv4 (Ptr<Ipv4> ipv4);
++  virtual void PrintRoutingTable (Ptr<OutputStreamWrapper> stream) const;
++  // \}
++
++  /**
++  * \brief look up for a forwarding route in the routing table.
++  *
++  * \param address destination address
++  * \param dev output net-device if any (assigned 0 otherwise)
++  * \return Ipv4Route where that the given packet has to be forwarded 
++  */
++  Ptr<Ipv4Route> LookupRoute (Ipv4Address address, Ptr<NetDevice> dev = 0);
++  
++  /**
++  * \brief Assign a fixed random variable stream number to the random variables
++  * used by this model.  Return the number of streams (possibly zero) that
++  * have been assigned.
++  *
++  * \param stream first stream index to use
++  * \return the number of stream induces assigned by this model
++  */
++  int64_t AssignStreams (int64_t stream);
++
++  /**
++   * \brief Get the set of interfaces excluded from the protocol.
++   * \return the set of excluded interfaces
++   */
++  //std::set<uint32_t> GetInterfaceExclusions () const;
++
++  /**
++   * \brief Set the set of interface excluded from the protocol.
++   * \param exceptions the set of excluded interfaces
++   */
++  void SetInterfaceExclusions (std::set<uint32_t> exceptions);
++
++  /**
++   * \brief Add a default route to the router.
++   *
++   * The default route is usually installed manually, or it is the result of
++   * some "other" routing protocol (e.g., BGP).
++   *
++   * \param nextHop the next hop
++   * \param interface the interface
++   */
++  void AddDefaultRouteTo (Ipv4Address nextHop, uint32_t interface);
++
++protected:
++  /**
++   * \brief Dispose this object.
++   */
++  virtual void DoDispose ();
++
++  /**
++   * Start protocol operation
++   */
++  void DoInitialize ();
++private:
++
++  // \name for route management
++  // \{
++  /// Container for a Route table entry 
++  typedef std::pair <DVRPRoutingEntry*, EventId> RouteTableRecord;
++  
++  /// Container for an instance of the neighbor table
++  typedef std::list<std::pair <DVRPRoutingEntry*, EventId> > RoutingTableInstance;
++
++  /// Iterator for the Neighbor table entry container
++  typedef std::list<std::pair <DVRPRoutingEntry*, EventId> >::iterator RoutesI;
++
++  /// Constant Iterator for the Neighbor table entry container
++  typedef std::list<std::pair <DVRPRoutingEntry*, EventId> >::const_iterator RoutesCI;
++
++  /**
++   * \brief Receive DVRP packets.
++   *
++   * \param socket the socket the packet was received to.
++   */
++  void Receive (Ptr<Socket> socket);
++
++  /**
++   * \brief Handle Keep Alive Messages.
++   *
++   * \param kam Keep Alive Message header (including KAMs)
++   * \param senderAddress sender address
++   * \param incomingInterface incoming interface
++   */
++  void HandleKamRequests (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint32_t incomingInterface);
++
++  /**
++   * \brief Send Keep alive Messages.  
++   */
++  void sendKams (); 
++
++  /**
++   * \brief Handle DVRP route request messages.
++   * \param hdr message header (including RUMs)
++   * \param senderAddress sender address
++   * \param senderPort sender port
++   * \param incomingInterface incoming interface
++   */
++  void HandleRouteRequests (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint16_t senderPort, uint32_t incomingInterface);
++
++  /**
++   * \brief Handle DVRP route response messages.
++   * \param hdr message header (including RUMs)
++   * \param senderAddress sender address
++   * \param incomingInterface incoming interface
++   */
++  void HandleRouteResponses (DVRPRoutingHeader hdr, Ipv4Address senderAddress, uint32_t incomingInterface);
++
++  /**
++   * \brief Send Routing Updates on all interfaces.
++   * \param updateType PERIODIC or TRIGGERED
++   */
++  void DoSendRouteUpdate (UpdateType updateType);
++
++  /**
++   * \brief Send Routing Request for a given address.
++   * \param toAddress is the address that route request is sending for
++   */
++  void SendRouteRequestTo (Ipv4Address toAddress);
++
++  /**
++   * \brief Send Triggered Routing Updates on all interfaces.
++   */
++  void SendTriggeredRouteUpdate ();
++
++  /**
++   * \brief Send Unsolicited Routing Updates on all interfaces.
++   */
++  void SendPeriodicUpdate (void);
++
++	/**
++	 * \brief Find the socket for a given interface. 
++	 * \param interface the incoming interface 
++   * \return the bounded socket
++	 */
++  Ptr<Socket> GetSocketForInterface (uint32_t interface);
++
++	/**
++	 * \brief Find the interface that a socket bounded to . 
++	 * \param socket the socket
++   * \return the bounded interface  
++	 */
++  int32_t GetInterfaceForSocket (Ptr<Socket> socket);
++
++  /**
++   * \brief Add route to network where the gateway address is known.
++   * \param network network address
++   * \param networkMask network prefix
++   * \param nextHop next hop address to route the packet.
++   * \param interface interface index
++   * \param metric the cumulative hop count to the destination network
++   * \param sequenceNo sequence number of the received route
++   * \param timeoutTime time that the route is going to expire
++   * \param grabageCollectionTime, time that the route has to be removeded from the table
++   */
++  void AddNetworkRouteTo (Ipv4Address network, Ipv4Mask networkMask, Ipv4Address nextHop, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime);
++
++  /**
++   * \brief Add route to network where the gateway is not needed. Such routes are usefull to add
++   * routes about the localy connected networks.
++   * \param network network address
++   * \param networkMask network prefix
++   * \param interface interface index
++   * \param metric the cumulative hop count to the destination network
++   * \param sequenceNo sequence number of the received route
++   * \param timeoutTime time that the route is going to expire
++   * \param grabageCollectionTime, time that the route has to be removeded from the table
++   */
++  void AddNetworkRouteTo (Ipv4Address network, Ipv4Mask networkMask, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime);
++
++  /**
++   * \brief Add route to a host.
++   * \param network network address
++   * \param interface interface index
++   * \param metric the cumulative hop count to the destination network
++   * \param sequenceNo sequence number of the received route
++   * \param timeoutTime time that the route is going to expire
++   * \param grabageCollectionTime, time that the route has to be removeded from the table
++   */
++  void AddHostRouteTo (Ipv4Address host, uint32_t interface, uint16_t metric, uint16_t sequenceNo, Time timeoutTime, Time garbageCollectionTime);
++
++  /**
++   * \brief Invalidate a route.
++   * \param route the route to be removed
++   */
++  void InvalidateRoute (DVRPRoutingEntry *route);
++
++  /**
++   * \brief Delete a route.
++   * \param route the route to be removed
++   */
++  void DeleteRoute (DVRPRoutingEntry *route);
++
++  /**
++   * \brief Invalidate routes for a given interface.
++   * \param interface the route to be removed
++   * \return true if found a route
++   */  
++  bool InvalidateRoutesForInterface (uint32_t interface);
++
++  /**
++   * \brief Invalidate broken routes.
++   * broken routes are separated using the sequence number. All ODD valued sequence numbers indicate that the route is
++   * is a broken route
++   * \param destination destination network
++   * \param destinationMask mask of the destination network
++   * \return true if found route(s)
++   */  
++  bool InvalidateBrokenRoutes(Ipv4Address destination, Ipv4Mask destinationMask);
++
++  /**
++   * \brief Once a neighbor record is invalidated, all routes that has the gateway as the invalidated neighbor is also
++   * invalidated
++   * \param gateway neighbor address
++   * \return true if found route(s)
++   */  
++  bool InvalidateRoutesForGateway (Ipv4Address gateway);
++
++  /**
++   * \brief check for the locally connected networks.
++   * \param address network address
++   * \param mask mask of the network
++   * \return true if found route(s)
++   */
++
++  bool IsLocalRouteAvailable (Ipv4Address address, Ipv4Mask mask);
++
++  /**
++   * \Find and return a route record for given network and mask pair.
++   * \param address network address
++   * \param mask mask of the network
++   * \return true and the found route record
++   */
++  bool FindRouteRecord (Ipv4Address address, Ipv4Mask mask, RoutesI &foundRoute);
++
++
++  RoutingTableInstance m_routing;
++  Ptr<Ipv4> m_ipv4; //!< IPv4 reference  
++  bool m_initialized; //!< flag that indicates the protocol is already initialized.
++  Ptr<UniformRandomVariable> m_rng; //!< Rng stream.
++  
++  std::set<uint32_t> m_interfaceExclusions; //!< Set of excluded interfaces
++  
++	PrintingOption m_print; //!< Printing Type
++  SplitHorizonType m_splitHorizonStrategy; //!< Split Horizon strategy
++
++  
++  EventId m_nextPeriodicUpdate; //!< Next periodic update event
++  EventId m_nextTriggeredUpdate; //!< Next triggered update event
++
++  Time m_startupDelay; //!< Random delay before protocol start-up.  
++  Time m_minTriggeredCooldownDelay; //!< minimum cool-down delay between two triggered updates
++  Time m_maxTriggeredCooldownDelay; //!< maximum cool-down delay between two triggered updates
++  Time m_periodicUpdateDelay; //!< delay between two periodic updates
++  Time m_routeTimeoutDelay; //!< delay that a route will be available as a VALID route
++
++  // note: Since the result of socket->GetBoundNetDevice ()->GetIfIndex () is ambiguity and 
++  // it depends on the interface initialization (i.e., if the loopback is already up), the socket
++  // list is manual created in this implementation.
++  // At the time neighbors are discovered, <socket, interface> is then added to the relevant neighbor.
++  
++  /// Socket list type
++  typedef std::map< Ptr<Socket>, uint32_t> SocketList;
++  /// Socket list type iterator
++  typedef std::map<Ptr<Socket>, uint32_t>::iterator SocketListI;
++  /// Socket list type const iterator
++  typedef std::map<Ptr<Socket>, uint32_t>::const_iterator SocketListCI;
++
++  SocketList m_sendSocketList; //!< list of sockets (socket, interface index)
++  Ptr<Socket> m_recvSocket; //!< receive socket
++
++  // \}
++
++  // \name for neighbor management
++  // \{
++  /// Container for a neighbor table entry 
++  typedef std::pair <DVRPNeighborEntry, EventId> NeighborTableRecord;
++  
++  /// Container for an instance of the neighbor table
++  typedef std::list<std::pair <DVRPNeighborEntry*, EventId> > NeighborTableInstance;
++
++  /// Iterator for the Neighbor table entry container
++  typedef std::list<std::pair <DVRPNeighborEntry*, EventId> >::iterator NeighborI;
++
++  /// Constant Iterator for the Neighbor table entry container
++  typedef std::list<std::pair <DVRPNeighborEntry*, EventId> >::const_iterator NeighborCI;
++
++  /**
++  * \brief Add a new neighbor record to the neighbor table 
++  * \param neighborEntry neighbor details  
++  */
++  void AddNeighbor (DVRPNeighborEntry *neighborEntry);
++
++  /**
++  * \brief Delete a neighbor record from the neighbor table after it is invalidated.
++  * \param neighborEntry neighbor details   
++  * \returns true if success  
++  */
++  bool DeleteNeighbor (DVRPNeighborEntry *neighborEntry);
++
++  /**
++  * \brief Invalidate a neighbor record.
++  * \param neighborEntry neighbor details
++  * \returns true if success  
++  */
++  bool InvalidateNeighbor (DVRPNeighborEntry *neighborEntry);
++
++  /**
++  * \brief Update a given neighbor Record
++  * \param neighborEntry neighbor details
++  * \returns true if success  
++  */
++  bool UpdateNeighbor (DVRPNeighborEntry *neighborEntry);
++
++	/**
++  * \brief Find and return a neighbor record of a valid neighbor for given ID (consider the VALID flag)
++  * \param address find for the address   
++  * \returns true and the corresponding neighbor record if success  
++  */
++  bool FindValidNeighbor (Ipv4Address address, NeighborI &retNeighborEntry);
++
++	/**
++  * \brief Find and return a neighbor record
++  * \param address find for the address   
++  * \returns true and the currosponding neighbor record if success  
++  */
++	bool FindNeighbor (Ipv4Address address, NeighborI &retNeighborEntry);
++
++  /**
++  * \brief Return an instance of the neighbor table. This is specifically implemented for debug purposes
++  * \param neighborTableInstance an instance of the std::list <NeighborTableEntry*, EventID>   
++  * \returns true if success  
++  */
++  void ReturnNeighborTable (NeighborTableInstance &instance);
++
++  /**
++  * \brief Print the neighbor Table
++  * \param the output stream 
++  */
++  void PrintNeighborTable (Ptr<OutputStreamWrapper> stream) const;
++
++  /**
++  * \brief return if the neighboer table is empty or not
++  */
++  bool IsEmpty(void);
++
++  NeighborTableInstance m_neighborTable; //!< instance of the neighbor table
++  
++  Time m_kamTimer; //!< time between two keep alive messages 
++  Time m_neighborTimeoutDelay; //!< Delay that determines the neighbor is UNRESPONSIVE
++  Time m_garbageCollectionDelay; //!< Delay before remove UNRESPONSIVE route/neighbor record
++  
++  EventId m_nextKeepAliveMessage; //!< next Keep Alive Message event
++  // \}
++}; // DVRP Routing Protocol
++}
++#endif /* DVRP_H */
++
+diff -uprN dvrppatch/src/dvrpo/model/dvrp-header.cc dvrppatch/src/dvrp/model/dvrp-header.cc
+--- dvrppatch/src/dvrpo/model/dvrp-header.cc	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/model/dvrp-header.cc	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,350 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++ 
++#include "dvrp-header.h"
++
++namespace ns3 {
++/*
++ * DVRP RUM
++*/
++NS_OBJECT_ENSURE_REGISTERED (DVRPRum);
++
++DVRPRum::DVRPRum(): m_sequenceNumber (0),
++                    m_matric (0),
++                    m_destination (Ipv4Address ()),
++                    m_mask (Ipv4Mask ())
++{ /*Constructor*/ }
++
++TypeId DVRPRum::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::DVRPRum").SetParent<Header> ().AddConstructor<DVRPRum> ();
++  return tid;
++}
++
++TypeId DVRPRum::GetInstanceTypeId (void) const
++{
++  return GetTypeId ();
++}
++
++void 
++DVRPRum::Print (std::ostream & os) const
++{
++  os << "Destination " <<  m_destination << "/" << m_mask << " Matric " << int (m_matric) << " Sequence Number "<< int (m_sequenceNumber) << std::endl;
++}
++
++uint32_t 
++DVRPRum::GetSerializedSize () const
++{
++  return DVRPRUM_SIZE;
++}
++
++void 
++DVRPRum::Serialize (Buffer::Iterator i) const
++{
++  uint8_t tmp[4];
++
++  m_destination.Serialize (tmp);  
++  i.Write (tmp, 4);
++  
++  i.WriteHtonU32 (m_mask.Get ());
++  i.WriteHtonU16 (m_matric);
++  i.WriteHtonU16 (m_sequenceNumber);
++}
++
++uint32_t 
++DVRPRum::Deserialize (Buffer::Iterator i)
++{
++  uint8_t tmp[4];
++
++  i.Read (tmp, 4);  
++  m_destination  = Ipv4Address::Deserialize (tmp);
++  
++  m_mask = i.ReadNtohU32 ();
++  m_matric = i.ReadNtohU16 ();
++  m_sequenceNumber = i.ReadNtohU16 ();
++
++  return GetSerializedSize ();
++}
++
++std::ostream & operator << (std::ostream & os, const DVRPRum & RUM)
++{
++  RUM.Print (os);
++  return os;
++}
++
++/*
++* DVRPKAMHeader Header
++*/
++
++NS_OBJECT_ENSURE_REGISTERED (DVRPKAMHeader);
++
++DVRPKAMHeader::DVRPKAMHeader(): m_command (0),
++                                m_gateway (Ipv4Address ()),
++                                m_gatewayMask (Ipv4Mask ())
++{ /*Constructor*/ }
++
++TypeId DVRPKAMHeader::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::DVRPKAMHeader").SetParent<Header> ().AddConstructor<DVRPKAMHeader> ();
++  return tid;
++}
++
++TypeId DVRPKAMHeader::GetInstanceTypeId (void) const
++{
++  return GetTypeId ();
++}
++
++void 
++DVRPKAMHeader::Print (std::ostream & os) const
++{
++  os << "Destination " <<  m_gateway << "/" << m_gatewayMask << std::endl;
++}
++
++uint32_t 
++DVRPKAMHeader::GetSerializedSize () const
++{
++  return DVRPKAM_SIZE;
++}
++
++void 
++DVRPKAMHeader::Serialize (Buffer::Iterator i) const
++{
++  uint8_t tmp[4];
++
++  m_gateway.Serialize (tmp);  
++  i.Write (tmp, 4);
++  
++  i.WriteHtonU32 (m_gatewayMask.Get ());
++  i.WriteU8 (m_command);
++}
++
++uint32_t 
++DVRPKAMHeader::Deserialize (Buffer::Iterator i)
++{
++  uint8_t tmp[4];
++
++  i.Read (tmp, 4);
++  m_gateway  = Ipv4Address::Deserialize (tmp);
++  
++  m_gatewayMask = i.ReadNtohU32 ();
++  m_command = i.ReadU8 ();
++
++  return GetSerializedSize ();
++}
++
++std::ostream & operator << (std::ostream & os, const DVRPKAMHeader & KAM)
++{
++  KAM.Print (os);
++  return os;
++}
++
++/*
++* DVRP Routing Header
++*/
++
++NS_OBJECT_ENSURE_REGISTERED (DVRPRoutingHeader);
++
++DVRPRoutingHeader::DVRPRoutingHeader () : m_command (0)
++{ /*Constructor*/ }
++
++TypeId DVRPRoutingHeader::GetTypeId (void)
++{
++  static TypeId tid = TypeId ("ns3::DVRPRoutingHeader").SetParent<Header> ().AddConstructor<DVRPRoutingHeader> ();
++  return tid;
++}
++
++TypeId DVRPRoutingHeader::GetInstanceTypeId (void) const
++{
++  return GetTypeId ();
++}
++
++void 
++DVRPRoutingHeader::Print (std::ostream & os) const
++{
++  os << "Command " << int (m_command);
++  
++  if (m_command == REQUEST || m_command == RESPONSE) // Get the size of the Route Update packet
++  {
++    for (std::list<DVRPRum>::const_iterator iter = m_rumList.begin (); iter != m_rumList.end (); iter ++)
++    {
++      os << " RUMS |  ";
++      iter->Print (os);
++    }
++  }
++  else if (m_command == KAM)
++  {
++    for (std::list<DVRPKAMHeader>::const_iterator iter = m_helloList.begin (); iter != m_helloList.end (); iter ++)
++    {
++      os << " KAMS |  ";
++      iter->Print (os);
++    }
++  }
++}
++
++uint32_t 
++DVRPRoutingHeader::GetSerializedSize () const
++{
++  DVRPRum rum;
++  DVRPKAMHeader kam;
++  if (m_command == REQUEST || m_command == RESPONSE) // Get the size of the Route Update packet
++  {
++    return DVRP_BASE_SIZE + m_rumList.size () * rum.GetSerializedSize ();
++  }
++  else if (m_command == KAM) // Get the size of the Hello/Keep Alive Message packet
++  {
++    return DVRP_BASE_SIZE + m_helloList.size () * kam.GetSerializedSize ();
++  }
++  
++  return 0; // return 0 if the message miss matches. 
++}
++
++void 
++DVRPRoutingHeader::Serialize (Buffer::Iterator start) const
++{
++  Buffer::Iterator i = start;
++
++  i.WriteU8 (m_command);
++
++  if (m_command == REQUEST || m_command == RESPONSE) // Get the size of the Route Update packet
++  {
++    for (std::list<DVRPRum>::const_iterator iter = m_rumList.begin (); iter != m_rumList.end (); iter ++)
++    {
++      iter->Serialize (i);
++      i.Next(iter->GetSerializedSize ());
++    }
++  }
++  else if (m_command == KAM) // Get the size of the Hello/Keep Alive Message packet
++  {
++    for (std::list<DVRPKAMHeader>::const_iterator iter = m_helloList.begin (); iter != m_helloList.end (); iter ++)
++    {
++      iter->Serialize (i);
++      i.Next(iter->GetSerializedSize ());
++    }
++  }
++}
++
++uint32_t 
++DVRPRoutingHeader::Deserialize (Buffer::Iterator start)
++{
++  Buffer::Iterator i = start;
++
++  uint8_t temp;
++  temp = i.ReadU8 ();
++  
++  if ((temp == REQUEST) || (temp == RESPONSE) || (temp == KAM))
++  {
++    m_command = temp;
++  }
++  else
++  {
++    // Return 0 to indicate that the received packet is not in order.
++    return 0;
++  }
++
++  uint8_t numberofMessages = 0;
++
++  if (m_command == REQUEST || m_command == RESPONSE) // Get the size of the Route Update packet
++  {
++    numberofMessages = (i.GetSize () - DVRP_BASE_SIZE) / DVRPRUM_SIZE;
++    
++    for (uint8_t n=0; n<numberofMessages; n++)
++    {
++      DVRPRum rum;
++      i.Next (rum.Deserialize (i));
++      m_rumList.push_back (rum);
++    }
++    
++    return GetSerializedSize ();
++  }
++  else if (m_command == KAM) // Get the size of the Hello/Keep Alive Message packet
++  {
++    numberofMessages = (i.GetSize () - DVRP_BASE_SIZE) / DVRPKAM_SIZE;
++    
++    for (uint8_t n=0; n<numberofMessages; n++)
++    {
++      DVRPKAMHeader kam;
++      i.Next (kam.Deserialize (i));
++      m_helloList.push_back (kam);
++    }
++    
++    return GetSerializedSize ();
++  }
++  else
++  {
++    // Return 0 to indicate that the received packet is not in order.
++    return 0;
++  }
++}
++
++void 
++DVRPRoutingHeader::AddRum (DVRPRum rum)
++{
++  m_rumList.push_back (rum);
++}
++
++void 
++DVRPRoutingHeader::DeleteRum (DVRPRum rum)
++{
++  for (std::list<DVRPRum>::iterator it = m_rumList.begin (); it!= m_rumList.end (); it ++)
++  {
++    if (rum.GetDestAddress () == it->GetDestAddress ())
++    { 
++      m_rumList.erase (it);
++    }
++  }    
++}
++
++void 
++DVRPRoutingHeader::ClearRums ()
++{
++  m_rumList.clear ();
++}
++
++std::list<DVRPRum>
++DVRPRoutingHeader::GetRumList (void) const
++{
++  return m_rumList;
++}
++
++void 
++DVRPRoutingHeader::AddKam (DVRPKAMHeader kam)
++{
++  m_helloList.push_back (kam);
++}
++
++void 
++DVRPRoutingHeader::ClearKams ()
++{
++  m_helloList.clear ();
++}
++
++std::list<DVRPKAMHeader> 
++DVRPRoutingHeader::GetKamList (void) const
++{
++  return m_helloList;
++}
++
++std::ostream & operator << (std::ostream & os, const DVRPRoutingHeader & h)
++{
++  h.Print (os);
++  return os;
++}
++
++}
+diff -uprN dvrppatch/src/dvrpo/model/dvrp-header.h dvrppatch/src/dvrp/model/dvrp-header.h
+--- dvrppatch/src/dvrpo/model/dvrp-header.h	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/model/dvrp-header.h	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,430 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++
++#ifndef DVRP_PACKET_HEADER
++#define DVRP_PACKET_HEADER
++
++#include <list>
++
++#include "ns3/header.h"
++#include "ns3/ipv4-address.h"
++#include "ns3/packet.h"
++#include "ns3/ipv4-header.h"
++
++namespace ns3 {
++
++  #define DVRPRUM_SIZE 12 //!< Route Update Message Size
++  #define DVRPKAM_SIZE 9 //!< Keel Alive Message Header Size
++  #define DVRP_BASE_SIZE 1 //!< DVRP Header Base Size
++
++  /**
++   * Commands to be used in KAM Header
++   */
++  enum DVRPKAMCommand
++  {
++    HELLO = 0x01,
++    // Rest of the commands are TBI
++  };
++
++  /**
++   * Commands to be used in DVRP Routing Header
++   */
++  enum DVRPHeaderCommand
++  {
++    REQUEST = 0x01, //!< Route Request message
++    RESPONSE = 0x02, // !< Route Responce message
++    KAM = 0x03, //!< Keep alive (hello) message
++  };
++
++/**
++ * \ingroup DVRP
++ * \brief Distance Vector Routing Protocol's (DVRP's) Route Update Message (RUM)
++ */
++/**	-----------------------------RUM-------------------------------
++	* |      0        |      1        |      2        |      3      |
++	* 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |						  Seq#              |			     	 Metric           |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |				        Network Address / Host Address    		  		  |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |						               Network Mask		          				  |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++*/
++
++class DVRPRum : public Header
++{
++public:
++  DVRPRum (void);
++
++  /**
++   * \brief Get the type ID.
++   * \return the object TypeId
++   */
++  static TypeId GetTypeId (void);
++
++  /**
++   * \brief Return the instance type identifier.
++   * \return instance type ID
++   */
++  virtual TypeId GetInstanceTypeId (void) const;
++  
++  /**
++   * \brief print the header
++   * \pram os the output stream
++   */
++  virtual void Print (std::ostream& os) const;
++
++  /**
++   * \brief Get the serialized size of the packet.
++   * \return size
++   */
++  virtual uint32_t GetSerializedSize (void) const;
++
++  /**
++   * \brief Serialize the packet.
++   * \param start Buffer iterator
++   */
++  virtual void Serialize (Buffer::Iterator start) const;
++
++  /**
++   * \brief Deserialize the packet.
++   * \param start Buffer iterator
++   * \return size of the packet
++   */
++  virtual uint32_t Deserialize (Buffer::Iterator start);
++
++  /**
++   * \brief Get and Set the Sequence number.
++   * \param SequenceNumber
++   * \return the sequenceNumber
++   */
++  uint16_t GetSequenceNo () const
++  {
++    return m_sequenceNumber;
++  }
++  void SetSequenceNo (uint16_t sequenceNumber)
++  {
++    m_sequenceNumber = sequenceNumber;
++  }
++
++  /**
++   * \brief Get and Set the Metric.
++   * \param metric value
++   * \return the metric value
++   */
++  uint16_t GetMatric () const
++  {
++    return m_matric;
++  }
++  void SetMatric (uint16_t matric)
++  {
++    m_matric = matric;
++  }
++
++  /**
++   * \brief Get and Set the Destination address.
++   * \param address the destination address
++   * \return the destination address
++   */
++	void SetDestAddress (Ipv4Address destination)
++	{
++    m_destination = destination;
++	}
++	Ipv4Address GetDestAddress () const
++	{
++    return m_destination;
++	}
++
++  /**
++   * \brief Get and Set the Network Mask
++   * \param mask the netmask of the destiunation
++   * \return the the netmask of the destiunation
++   */
++	void SetDestMask (Ipv4Mask mask)
++	{
++    m_mask = mask;
++	}
++	Ipv4Mask GetDestMask () const
++	{
++    return m_mask;
++	}
++
++private:
++  uint16_t m_sequenceNumber; //!< sequence number
++  uint16_t m_matric; //!< metric (hop count for the destination)
++  Ipv4Address m_destination; //!< destination network/host address
++  Ipv4Mask m_mask; //!< destination network/host mask
++};
++/**
++ * \brief Stream insertion operator.
++ *
++ * \param os the reference to the output stream
++ * \param h the Routing Table Entry
++ * \returns the reference to the output stream
++ */
++std::ostream & operator << (std::ostream & os, const DVRPRum & h);
++
++
++/**
++ * \ingroup DVRP
++ * \brief DVRP Hello and Keep Alive Message (KAM) header
++ */
++/**	----------------Keep Alive Message Header----------------------
++	* |      0        |      1        |      2        |      3      |
++	* 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |		Command	    |	                     NA               		  |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |						                Gateway 	          						  |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |						                  Mask	  		        					  |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++*/
++class DVRPKAMHeader : public Header
++{
++public:
++  DVRPKAMHeader (void);
++
++  /**
++   * \brief Get the type ID.
++   * \return the object TypeId
++   */
++  static TypeId GetTypeId (void);
++
++  /**
++   * \brief Return the instance type identifier.
++   * \return instance type ID
++   */
++  virtual TypeId GetInstanceTypeId (void) const;
++
++  /**
++   * \brief print the header
++   * \pram os the output stream
++   */
++  virtual void Print (std::ostream& os) const;
++
++  /**
++   * \brief Get the serialized size of the packet.
++   * \return size
++   */
++  virtual uint32_t GetSerializedSize (void) const;
++
++  /**
++   * \brief Serialize the packet.
++   * \param start Buffer iterator
++   */
++  virtual void Serialize (Buffer::Iterator start) const;
++
++  /**
++   * \brief Deserialize the packet.
++   * \param start Buffer iterator
++   * \return size of the packet
++   */
++  virtual uint32_t Deserialize (Buffer::Iterator start);
++
++  /**
++   * \brief Get and Set the Command.
++   * \param command the command type
++   * \return the command type
++   */
++	void SetCommand (DVRPKAMCommand command)
++	{
++    m_command = command;
++	}
++	DVRPKAMCommand Getcommand () const
++	{
++    return DVRPKAMCommand (m_command);
++	}
++
++  /**
++   * \brief Get and Set the Gateway address.
++   * \param address the destination address
++   * \return the destination address
++   */
++	void SetGateway (Ipv4Address gateway)
++	{
++    m_gateway = gateway;
++	}
++	Ipv4Address GetGateway () const
++	{
++    return m_gateway;
++	}
++
++  /**
++   * \brief Get and Set the mask of the Gateway
++   * \param mask the net-mask of the destination
++   * \return the the net-mask of the destination
++   */
++	void SetGatewayMask (Ipv4Mask gatewayMask)
++	{
++    m_gatewayMask = gatewayMask;
++	}
++	Ipv4Mask GetGatewayMask () const
++	{
++    return m_gatewayMask;
++	}
++
++private:
++  uint8_t m_command;  //!< message command
++  Ipv4Address m_gateway;  //!< neighbor's address
++  Ipv4Mask m_gatewayMask;  //!< nieghbor's network mask
++};// end of class KeepAliveMessageHeader
++/**
++ * \brief Stream insertion operator.
++ *
++ * \param os the reference to the output stream
++ * \param h the Routing Table Entry
++ * \returns the reference to the output stream
++ */
++std::ostream & operator << (std::ostream & os, const DVRPKAMHeader & h);
++
++
++/**
++ * \ingroup DVRP
++ * \brief DVRP Routing Header
++ */
++/**	-------------------------DVRP header---------------------------
++	* |      0        |      1        |      2        |      3      |
++	* 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |    Command    |                      NA                     |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++	* |                        RUM /KAM~                            |
++	* +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
++*/
++
++class DVRPRoutingHeader : public Header
++{
++public:
++
++  DVRPRoutingHeader (void);
++
++  /**
++   * \brief Get the type ID.
++   * \return the object TypeId
++   */
++  static TypeId GetTypeId (void);
++
++  /**
++   * \brief Return the instance type identifier.
++   * \return instance type ID
++   */
++  virtual TypeId GetInstanceTypeId (void) const;
++
++  /**
++   * \brief print the header
++   * \pram os the output stream
++   */
++  virtual void Print (std::ostream& os) const;
++
++  /**
++   * \brief Get the serialized size of the packet.
++   * \return size
++   */
++  virtual uint32_t GetSerializedSize (void) const;
++
++  /**
++   * \brief Serialize the packet.
++   * \param start Buffer iterator
++   */
++  virtual void Serialize (Buffer::Iterator start) const;
++
++  /**
++   * \brief Deserialize the packet.
++   * \param start Buffer iterator
++   * \return size of the packet
++   */
++  virtual uint32_t Deserialize (Buffer::Iterator start); 
++
++  /**
++   * \brief Get and Set the Command.
++   * \param command is the DVRP packet command
++   * \return the command
++   */
++  DVRPHeaderCommand GetCommand () const
++  {
++    return  DVRPHeaderCommand (m_command);
++  }
++  void SetCommand (DVRPHeaderCommand command)
++  {
++    m_command = command;
++  }
++
++  uint8_t GetNoe () const
++  {
++    return m_rumList.size();
++  }
++
++  /**
++   * \brief Add a RUM to the message
++   * \param rum the RUM
++   */
++  void AddRum (DVRPRum rum);
++
++  /**
++   * \brief Delete a RUM in the message
++   * \param rum the RUM
++   */
++  void DeleteRum (DVRPRum rum);
++
++  /**
++   * \brief Clear all the RUMs from the header
++   */
++  void ClearRums ();
++
++  /**
++   * \brief Get the list of the RUMs included in the message
++   * \returns the list of the RUMs in the message
++   */
++  std::list<DVRPRum> GetRumList (void) const;
++
++  /**
++   * \brief Add a KAMs to the message
++   * \param kam the keep alive message
++   */
++  void AddKam (DVRPKAMHeader kam);
++
++  /**
++   * \brief Clear all the KAMs from the header
++   */
++  void ClearKams ();
++
++  /**
++   * \brief Get the list of the KAMs included in the message
++   * \returns the list of the KAMs in the message
++   */
++  std::list<DVRPKAMHeader> GetKamList (void) const;
++
++private:
++  uint8_t m_command; //!< command type
++  std::list<DVRPRum> m_rumList; //!< list of the RUMs in the message
++  std::list<DVRPKAMHeader> m_helloList; //!< list of the RUMs in the message
++};
++/**
++ * \brief Stream insertion operator.
++ *
++ * \param os the reference to the output stream
++ * \param h the DVRPRoutingHeader header
++ * \returns the reference to the output stream
++ */
++std::ostream & operator << (std::ostream & os, const DVRPRoutingHeader & h);
++} // end of ns3 namespace
++#endif /* HEADERS */
+diff -uprN dvrppatch/src/dvrpo/test/dvrp-test-suite.cc dvrppatch/src/dvrp/test/dvrp-test-suite.cc
+--- dvrppatch/src/dvrpo/test/dvrp-test-suite.cc	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/test/dvrp-test-suite.cc	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,306 @@
++/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
++/*
++ * Copyright (c) 2015 Janaka Wijekoon, Hiroaki Nishi Laboratory, Keio University, Japan
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as 
++ * published by the Free Software Foundation;
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
++ *
++ * Author: Janaka Wijekoon <janaka@west.sd.ekio.ac.jp>, Hiroaki Nishi <west@sd.keio.ac.jp>
++ */
++
++#include "ns3/boolean.h"
++#include "ns3/config.h"
++#include "ns3/inet-socket-address.h"
++#include "ns3/internet-stack-helper.h"
++#include "ns3/ipv4-address-helper.h"
++#include "ns3/ipv4-static-routing-helper.h"
++#include "ns3/node.h"
++#include "ns3/node-container.h"
++#include "ns3/packet.h"
++#include "ns3/pointer.h"
++#include "ns3/simulator.h"
++#include "ns3/string.h"
++#include "ns3/test.h"
++#include "ns3/uinteger.h"
++#include "ns3/simple-net-device.h"
++#include "ns3/simple-channel.h"
++#include "ns3/simple-net-device-helper.h"
++#include "ns3/socket-factory.h"
++#include "ns3/udp-socket-factory.h"
++
++#include "ns3/ipv4-list-routing.h"
++#include "ns3/ipv4-list-routing-helper.h"
++
++#include "ns3/dvrp.h"
++#include "ns3/dvrp-helper.h"
++
++#include "ns3/udp-client-server-helper.h"
++#include "ns3/udp-echo-helper.h"
++
++#include <string>
++#include <limits>
++
++
++// Include a header file from your module to test.
++
++using namespace ns3;
++
++// DVRPTEST
++class DvrpTest : public TestCase
++{
++
++  Ptr<Packet> m_receivedPacket;
++  void DoSendData (Ptr<Socket> socket, Ipv4Address to);
++  void SendData (Ptr<Socket> socket, Ipv4Address to);
++  
++public:
++
++  virtual void DoRun (void);
++  
++  DvrpTest ();
++  virtual ~DvrpTest ();
++  
++  void ReceivePkt (Ptr<Socket> socket);
++
++};
++
++DvrpTest::DvrpTest ()
++  : TestCase ("DVRP")
++{
++}
++
++DvrpTest::~DvrpTest ()
++{
++}
++
++void 
++DvrpTest::ReceivePkt (Ptr<Socket> socket)
++{
++  uint32_t availableData;
++  availableData = socket->GetRxAvailable ();
++  
++  m_receivedPacket = socket->Recv (std::numeric_limits<uint32_t>::max (), 0);
++  
++  NS_ASSERT (availableData == m_receivedPacket->GetSize ());
++  //cast availableData to void, to suppress 'availableData' set but not used
++  //compiler warning
++  (void) availableData;  
++}
++
++void
++DvrpTest::DoSendData (Ptr<Socket> socket, Ipv4Address to)
++{
++  Address realTo = InetSocketAddress (to, 1234);
++  NS_TEST_EXPECT_MSG_EQ (socket->SendTo (Create<Packet> (123), 0, realTo), 123, "100");
++}
++
++void
++DvrpTest::SendData (Ptr<Socket> socket, Ipv4Address to)
++{
++  m_receivedPacket = Create<Packet> ();
++  Simulator::ScheduleWithContext (socket->GetNode ()->GetId (), Seconds (60),
++                                  &DvrpTest::DoSendData, this, socket, to);
++  Simulator::Stop (Seconds (66));
++  Simulator::Run ();
++}
++
++// Test program for this 3-router scenario, using DVRP
++//
++// (*.*.*.*/32)src<--(a.a.a.a/30)-->A<--x.x.x.0/30-->B<--y.y.y.0/30-->C<--(c.c.c.c/30)-->dst(#.#.#.#/32)
++//
++
++void
++DvrpTest::DoRun (void)
++{
++  // creating the testing topology
++  Ptr<Node> txNode = CreateObject<Node> ();
++  Ptr<Node> rxNode = CreateObject<Node> ();
++  Ptr<Node> routerA = CreateObject<Node> ();
++  Ptr<Node> routerB = CreateObject<Node> ();
++  Ptr<Node> routerC = CreateObject<Node> ();
++
++  NodeContainer nodes (txNode, rxNode);
++  NodeContainer routers (routerA, routerB, routerC);
++  NodeContainer all (nodes, routers);
++  
++//  // simple links
++//  NodeContainer nTxrA = NodeContainer (txNode, routerA);
++//  NodeContainer rArB = NodeContainer (routerA, routerB);
++//  NodeContainer rBrC = NodeContainer (routerB, routerC);
++//  NodeContainer rCnRx = NodeContainer (routerC, rxNode);  
++  
++ 	DVRPHelper dvrpRouting;
++  Ipv4ListRoutingHelper list;
++  list.Add (dvrpRouting, 0);
++  
++ 	InternetStackHelper internet;
++ 	internet.SetRoutingHelper (list);
++	internet.Install (routers);
++
++	InternetStackHelper internetNodes;
++	internetNodes.Install (nodes);
++  
++  // Add interfaces to the nodes (routes and end nodes)
++  NetDeviceContainer net1;
++  NetDeviceContainer net2;
++  NetDeviceContainer net3;
++  NetDeviceContainer net4;
++  
++  // Sender Node
++  Ptr<SimpleNetDevice> txDev;
++  {
++    txDev = CreateObject<SimpleNetDevice> ();
++    txDev->SetAddress (Mac48Address::Allocate ());
++    txNode->AddDevice (txDev);
++  }
++  net1.Add (txDev);
++
++  // Router A
++  Ptr<SimpleNetDevice> fwDev1routerA, fwDev2routerA;
++  { // first interface
++    fwDev1routerA = CreateObject<SimpleNetDevice> ();
++    fwDev1routerA->SetAddress (Mac48Address::Allocate ());
++    routerA->AddDevice (fwDev1routerA);
++  }
++  net1.Add (fwDev1routerA);
++
++  { // second interface
++    fwDev2routerA = CreateObject<SimpleNetDevice> ();
++    fwDev2routerA->SetAddress (Mac48Address::Allocate ());
++    routerA->AddDevice (fwDev2routerA);
++  }
++  net2.Add (fwDev2routerA);
++
++  // Router B
++  Ptr<SimpleNetDevice> fwDev1routerB, fwDev2routerB;
++  { // first interface
++    fwDev1routerB = CreateObject<SimpleNetDevice> ();
++    fwDev1routerB->SetAddress (Mac48Address::Allocate ());
++    routerB->AddDevice (fwDev1routerB);
++  }
++  net2.Add (fwDev1routerB);
++
++  { // second interface
++    fwDev2routerB = CreateObject<SimpleNetDevice> ();
++    fwDev2routerB->SetAddress (Mac48Address::Allocate ());
++    routerB->AddDevice (fwDev2routerB);
++  }
++  net3.Add (fwDev2routerB);
++
++  // Router C
++  Ptr<SimpleNetDevice> fwDev1routerC, fwDev2routerC;
++  { // first interface
++    fwDev1routerC = CreateObject<SimpleNetDevice> ();
++    fwDev1routerC->SetAddress (Mac48Address::Allocate ());
++    routerC->AddDevice (fwDev1routerC);
++  }
++  net3.Add (fwDev1routerC);
++
++  { // second interface
++    fwDev2routerC = CreateObject<SimpleNetDevice> ();
++    fwDev2routerC->SetAddress (Mac48Address::Allocate ());
++    routerC->AddDevice (fwDev2routerC);
++  }
++  net4.Add (fwDev2routerC);
++
++  // Rx node
++  Ptr<SimpleNetDevice> rxDev;
++  { // first interface
++    rxDev = CreateObject<SimpleNetDevice> ();
++    rxDev->SetAddress (Mac48Address::Allocate ());
++    rxNode->AddDevice (rxDev);
++  }
++  net4.Add (rxDev);
++
++  // link the channels
++  Ptr<SimpleChannel> channel1 = CreateObject<SimpleChannel> ();
++  txDev->SetChannel (channel1);
++  fwDev1routerA->SetChannel (channel1);
++
++  Ptr<SimpleChannel> channel2 = CreateObject<SimpleChannel> ();
++  fwDev2routerA->SetChannel (channel2);
++  fwDev1routerB->SetChannel (channel2);
++
++  Ptr<SimpleChannel> channel3 = CreateObject<SimpleChannel> ();
++  fwDev2routerB->SetChannel (channel3);
++  fwDev1routerC->SetChannel (channel3);
++
++  Ptr<SimpleChannel> channel4 = CreateObject<SimpleChannel> ();
++  fwDev2routerC->SetChannel (channel4);
++  rxDev->SetChannel (channel4);
++  
++  // assing IP addresses and create default routes for Tx and Rx devices
++  
++  Ipv4AddressHelper ipv4;
++  ipv4.SetBase ("172.16.1.0", "255.255.255.252");
++  Ipv4InterfaceContainer iic1 = ipv4.Assign (net1);
++  
++  ipv4.SetBase ("203.15.19.4", "255.255.255.252");
++  Ipv4InterfaceContainer iic2 = ipv4.Assign (net2);
++  
++  ipv4.SetBase ("10.1.1.4", "255.255.255.252");
++  Ipv4InterfaceContainer iic3 = ipv4.Assign (net3);
++  
++  ipv4.SetBase ("192.168.16.0", "255.255.255.252");
++  Ipv4InterfaceContainer iic4 = ipv4.Assign (net4);
++  
++  Ipv4StaticRoutingHelper statRouting;
++  
++	// setting up the 'routerA' as the default gateway of the 'txNode' 
++	Ptr<Ipv4StaticRouting> statSrc = statRouting.GetStaticRouting (txNode->GetObject<Ipv4> ());
++	statSrc->SetDefaultRoute (routerA->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal (), 1, 1);
++	
++  // setting up the 'routerC' as the default gateway of the 'rxNode'
++	Ptr<Ipv4StaticRouting> statDst = statRouting.GetStaticRouting (rxNode->GetObject<Ipv4> ());
++	statDst->SetDefaultRoute (routerC->GetObject<Ipv4> ()->GetAddress (2, 0).GetLocal (), 1, 1);
++	
++	  // Create the UDP sockets
++  Ptr<SocketFactory> rxSocketFactory = rxNode->GetObject<UdpSocketFactory> ();
++  Ptr<Socket> rxSocket = rxSocketFactory->CreateSocket ();
++  
++  NS_TEST_EXPECT_MSG_EQ (rxSocket->Bind (InetSocketAddress (rxNode->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal (), 1234)), 0, "trivial");
++  
++  rxSocket->SetRecvCallback (MakeCallback (&DvrpTest::ReceivePkt, this));
++  
++  Ptr<SocketFactory> txSocketFactory = txNode->GetObject<UdpSocketFactory> ();
++  Ptr<Socket> txSocket = txSocketFactory->CreateSocket ();
++  txSocket->SetAllowBroadcast (true);  
++  
++  // ------ Now the tests ------------
++
++  // Unicast test
++  Ipv4Address destination  = rxNode->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
++  SendData (txSocket, destination);
++  NS_TEST_EXPECT_MSG_EQ (m_receivedPacket->GetSize (), 123, "DVRP RIPng should work.");
++
++  m_receivedPacket->RemoveAllByteTags ();
++
++  Simulator::Destroy ();
++}
++
++class DvrpTestSuite : public TestSuite
++{
++public:
++  DvrpTestSuite ();
++};
++
++DvrpTestSuite::DvrpTestSuite ()
++  : TestSuite ("dvrp", UNIT)
++{
++  // TestDuration for TestCase can be QUICK, EXTENSIVE or TAKES_FOREVER
++  AddTestCase (new DvrpTest, TestCase::QUICK);
++}
++
++// Do not forget to allocate an instance of this TestSuite
++static DvrpTestSuite dvrpTestSuite;
++
+diff -uprN dvrppatch/src/dvrpo/test/examples-to-run.py dvrppatch/src/dvrp/test/examples-to-run.py
+--- dvrppatch/src/dvrpo/test/examples-to-run.py	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/test/examples-to-run.py	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,20 @@
++#! /usr/bin/env python
++## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
++
++# A list of C++ examples to run in order to ensure that they remain
++# buildable and runnable over time.  Each tuple in the list contains
++#
++#     (example_name, do_run, do_valgrind_run).
++#
++# See test.py for more information.
++cpp_examples = [
++    ("dvrp-example", "True", "True"),
++]
++
++# A list of Python examples to run in order to ensure that they remain
++# runnable over time.  Each tuple in the list contains
++#
++#     (example_name, do_run).
++#
++# See test.py for more information.
++python_examples = []
+diff -uprN dvrppatch/src/dvrpo/wscript dvrppatch/src/dvrp/wscript
+--- dvrppatch/src/dvrpo/wscript	1970-01-01 09:00:00.000000000 +0900
++++ dvrppatch/src/dvrp/wscript	2015-05-09 17:36:38.000000000 +0900
+@@ -0,0 +1,34 @@
++# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
++
++# def options(opt):
++#     pass
++
++# def configure(conf):
++#     conf.check_nonfatal(header_name='stdint.h', define_name='HAVE_STDINT_H')
++
++def build(bld):
++    module = bld.create_ns3_module('dvrp', ['core','internet','network'])
++    module.source = [
++        'model/dvrp-header.cc',
++        'model/dvrp.cc',
++        'helper/dvrp-helper.cc',
++        ]
++
++    module_test = bld.create_ns3_module_test_library('dvrp')
++    module_test.source = [
++        'test/dvrp-test-suite.cc',
++        ]
++
++    headers = bld(features='ns3header')
++    headers.module = 'dvrp'
++    headers.source = [
++        'model/dvrp-header.h',
++        'model/dvrp.h',
++        'helper/dvrp-helper.h',
++        ]
++
++    if bld.env.ENABLE_EXAMPLES:
++        bld.recurse('examples')
++
++    # bld.ns3_python_bindings()
++
