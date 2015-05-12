@@ -17,7 +17,7 @@ USAGE
 
 Building the DVRP
 =================
-Download the DVRP patch file from following link to the ns3 executable directory
+Download the DVRP patch file the ns3 executable directory
 (i.e., /ns-3.21).
 Then patch the ns3 using::
 
