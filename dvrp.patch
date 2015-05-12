@@ -1,7 +1,7 @@
 diff -uprN dvrppatch/src/dvrpo/doc/dvrp.rst dvrppatch/src/dvrp/doc/dvrp.rst
 --- dvrppatch/src/dvrpo/doc/dvrp.rst	1970-01-01 09:00:00.000000000 +0900
-+++ dvrppatch/src/dvrp/doc/dvrp.rst	2015-05-12 10:44:35.000000000 +0900
-@@ -0,0 +1,321 @@
++++ dvrppatch/src/dvrp/doc/dvrp.rst	2015-05-12 14:00:17.159564889 +0900
+@@ -0,0 +1,324 @@
 +
 +.. highlight:: cpp
 +.. highlight:: bash
@@ -206,7 +206,10 @@ diff -uprN dvrppatch/src/dvrpo/doc/dvrp.rst dvrppatch/src/dvrp/doc/dvrp.rst
 +Building the DVRP
 +=================
 +
-+Download the DVRP patch file from following link to the ns3 executable directory
++Download the DVRP patch file from following link ::
++  https://github.com/westlab/ns3dvrp
++
++to the ns3 executable directory
 +(i.e., /ns-3.21).
 +Then patch the ns3 using::
 +
